@@ -50,6 +50,10 @@ PAGE = """<!doctype html>
   #toolbar .bar {{ width: 1px; align-self: stretch; background: var(--border); margin: .15rem .3rem; }}
   [data-kind] {{ cursor: pointer; }}
   .selected {{ outline: 2px solid var(--accent); outline-offset: 2px; border-radius: .2rem; }}
+  .editing {{ outline: 2px solid var(--accent); background: var(--field); cursor: text;
+    border-radius: .2rem; padding: 0 .25rem; min-width: 5rem; }}
+  .newedit {{ flex: 1; min-width: 5rem; }}
+  h2 .newedit, #boardhead .newedit {{ font-weight: 600; }}
   #pills {{ display: flex; flex-wrap: wrap; gap: .4rem; margin: 1rem 0; }}
   .tab {{ padding: .25rem .7rem; border: 1px solid var(--border); border-radius: 999px; text-decoration: none; color: inherit; cursor: pointer; }}
   .tab.active {{ background: var(--accent); border-color: var(--accent); color: #fff; }}
@@ -58,7 +62,7 @@ PAGE = """<!doctype html>
   section {{ border-top: 1px solid var(--border); padding-top: .35rem; margin-top: .9rem; }}
 </style>
 <script>var s=localStorage.getItem('theme');if(s)document.documentElement.setAttribute('data-theme',s);</script>
-<h1><span class="name">todo</span><button id="theme" type="button" title="toggle light/dark">&#9681;</button></h1>
+<h1><span class="name">TODO</span><button id="theme" type="button" title="toggle light/dark">&#9681;</button></h1>
 {toolbar}
 {pills}
 {board}
@@ -74,9 +78,10 @@ TOOLBAR = """<div id="toolbar">
   <button id="t-up" type="button" title="Move up" disabled>&#8593;</button>
   <button id="t-down" type="button" title="Move down" disabled>&#8595;</button>
   <span class="bar"></span>
-  <button id="t-edit" type="button" title="Edit selected" disabled>&#9998;</button>
-  <button id="t-copy" type="button" title="Copy selected" disabled>&#10697;</button>
-  <button id="t-del" type="button" title="Delete selected" disabled>&#128465;</button>
+  <button id="t-edit" type="button" title="Edit inline" disabled>&#9998;</button>
+  <button id="t-dup" type="button" title="Duplicate in place (current board if none selected)">&#10697;</button>
+  <button id="t-clip" type="button" title="Copy subtree to clipboard (current board if none selected)">&#128203;</button>
+  <button id="t-del" type="button" title="Delete (current board if none selected)">&#128465;</button>
 </div>"""
 
 BOARD = """<div id="board">
@@ -158,37 +163,108 @@ document.querySelectorAll('ul[data-list]').forEach(ul => sortable(ul, 'li[data-n
 }));
 
 // Click a board name / list name / task to select it; the toolbar acts on the selection.
+// Click empty space to deselect. Edit/Add happen inline on the element itself.
 let sel = null;
 const tbtn = id => document.getElementById(id);
+const idsOf = d => ({kind: d.kind, board: d.board || '', list: d.list || '', n: d.n || ''});
 function select(el) {
   if (sel) sel.classList.remove('selected');
   sel = sel === el ? null : el;
   if (sel) sel.classList.add('selected');
-  ['t-up', 't-down', 't-edit', 't-copy', 't-del'].forEach(id => tbtn(id).disabled = !sel);
+  // Up/Down/Edit need a selection; Add/Duplicate/Copy/Delete fall back to the current board.
+  ['t-up', 't-down', 't-edit'].forEach(id => tbtn(id).disabled = !sel);
 }
-document.querySelectorAll('[data-kind]').forEach(el => el.onclick = e => { e.stopPropagation(); select(el); });
+document.querySelectorAll('[data-kind]').forEach(el => el.onclick = () => { if (!el.isContentEditable) select(el); });
+document.addEventListener('click', e => {
+  if (document.querySelector('.editing')) return;            // a click ends an edit by blurring it
+  if (e.target.closest('#toolbar') || e.target.closest('[data-kind]')) return;
+  if (sel) select(sel);                                       // background click -> deselect
+});
 
-function ids() { const d = sel.dataset; return {kind: d.kind, board: d.board || '', list: d.list || '', n: d.n || ''}; }
+const findUl = (board, list) =>
+  [...document.querySelectorAll('ul[data-list]')].find(u => u.dataset.board === board && u.dataset.list === list);
 
-// Add: child of the selection (board->list, list/task->task), or a new board when nothing is selected.
-tbtn('t-add').onclick = () => {
-  if (!sel) { const v = prompt('New board:'); if (v) post('/addboard', {name: v}); return; }
-  const d = sel.dataset;
-  if (d.kind === 'board') { const v = prompt('New list:'); if (v) post('/addlist', {board: d.board, name: v}); }
-  else { const v = prompt('New task:'); if (v) post('/add', {board: d.board, list: d.list, text: v}); }
-};
+// Turn `el` into an inline editor. New (added) elements and existing ones share one commit rule:
+// empty -> delete (added: just discard; existing: remove on the server). Enter/blur commit, Esc cancels.
+function inlineEdit(el, isAdd) {
+  const orig = isAdd ? '' : (el.dataset.text || el.dataset.list || el.dataset.board);
+  el.contentEditable = 'true';
+  el.classList.add('editing');
+  el.focus();
+  const r = document.createRange(); r.selectNodeContents(el);
+  const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+  let done = false;
+  const commit = (save) => {
+    if (done) return; done = true;
+    el.contentEditable = 'false';
+    el.classList.remove('editing');
+    const val = el.textContent.trim();
+    if (!save) { isAdd ? el.remove() : location.reload(); return; }
+    if (isAdd) {
+      if (!val) return el.remove();                            // empty add -> nothing created
+      const d = el.dataset;
+      if (d.add === 'board') post('/addboard', {name: val});
+      else if (d.add === 'list') post('/addlist', {board: d.board, name: val});
+      else post('/add', {board: d.board, list: d.list, text: val});
+    } else if (!val) {
+      post(DEL[el.dataset.kind], idsOf(el.dataset));           // empty edit -> delete
+    } else if (val !== orig) {
+      post('/edit', {...idsOf(el.dataset), text: val});
+    } else {
+      location.reload();                                       // unchanged
+    }
+  };
+  el.onkeydown = e => {
+    if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+  };
+  el.onblur = () => commit(true);
+}
 
 const MOVE = {item: '/move', list: '/movelist', board: '/moveboard'};
-tbtn('t-up').onclick = () => sel && post(MOVE[sel.dataset.kind], {...ids(), dir: 'up'});
-tbtn('t-down').onclick = () => sel && post(MOVE[sel.dataset.kind], {...ids(), dir: 'down'});
-
 const DEL = {item: '/rm', list: '/droplist', board: '/dropboard'};
-tbtn('t-del').onclick = () => sel && post(DEL[sel.dataset.kind], ids());
-tbtn('t-copy').onclick = () => sel && post('/copy', ids());
-tbtn('t-edit').onclick = () => {
-  if (!sel) return;
-  const d = sel.dataset, v = prompt('Edit:', d.text || d.list || d.board);
-  if (v !== null) post('/edit', {...ids(), text: v});
+// No selection -> act on the current board.
+const target = () => sel ? idsOf(sel.dataset) : {kind: 'board', board: TD.active, list: '', n: ''};
+
+tbtn('t-up').onclick = () => sel && post(MOVE[sel.dataset.kind], {...idsOf(sel.dataset), dir: 'up'});
+tbtn('t-down').onclick = () => sel && post(MOVE[sel.dataset.kind], {...idsOf(sel.dataset), dir: 'down'});
+tbtn('t-edit').onclick = () => sel && inlineEdit(sel, false);
+tbtn('t-del').onclick = () => { const t = target(); post(DEL[t.kind], t); };
+tbtn('t-dup').onclick = () => post('/copy', target());
+
+// Copy the selected subtree (board+lists+tasks / list+tasks / task) to the clipboard as JSON.
+function subtree(d) {
+  const board = (d && d.board) || TD.active, lists = TD.board[board] || {};
+  if (!d || d.kind === 'board') return {[board]: lists};
+  if (d.kind === 'list') return {[d.list]: lists[d.list]};
+  return lists[d.list][(+d.n) - 1];
+}
+tbtn('t-clip').onclick = () =>
+  navigator.clipboard.writeText(JSON.stringify(subtree(sel && sel.dataset), null, 2));
+
+// Add: make a new empty inline field as a child of the selection (board->list, list/task->task),
+// or a new board when nothing is selected. Leaving it empty adds nothing.
+tbtn('t-add').onclick = () => {
+  const span = document.createElement('span');
+  span.className = 'newedit';
+  if (!sel) {
+    span.dataset.add = 'board';
+    let pills = document.getElementById('pills');
+    if (!pills) { pills = document.createElement('nav'); pills.id = 'pills'; tbtn('t-add').closest('#toolbar').after(pills); }
+    span.classList.add('tab');
+    pills.appendChild(span);
+  } else if (sel.dataset.kind === 'board') {
+    span.dataset.add = 'list'; span.dataset.board = sel.dataset.board;
+    const sec = document.createElement('section'), h = document.createElement('h2');
+    h.appendChild(span); sec.appendChild(h);
+    document.getElementById('lists').appendChild(sec);
+  } else {
+    span.dataset.add = 'task'; span.dataset.board = sel.dataset.board; span.dataset.list = sel.dataset.list;
+    const li = document.createElement('li');
+    li.appendChild(span);
+    findUl(sel.dataset.board, sel.dataset.list).appendChild(li);
+  }
+  inlineEdit(span, true);
 };
 </script>"""
 
@@ -225,7 +301,11 @@ def render(data, active, can_undo=False, can_redo=False):
         board = BOARD.format(bname=html.escape(active), lists=sections)
     else:
         board = "<p>Create a board to get started.</p>"
-    return (PAGE.format(toolbar=toolbar, pills=pills, board=board) + SCRIPT).encode()
+    # Expose the active board's subtree so Copy can serialise it to the clipboard.
+    # < keeps task text containing "</script>" from breaking out.
+    payload = json.dumps({"active": active, "board": {active: data.get(active, {})}}).replace("<", "\\u003c")
+    data_js = f"<script>window.TD={payload}</script>"
+    return (PAGE.format(toolbar=toolbar, pills=pills, board=board) + data_js + SCRIPT).encode()
 
 
 class Handler(BaseHTTPRequestHandler):
