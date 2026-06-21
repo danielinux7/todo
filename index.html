@@ -46,6 +46,7 @@
 <script>var s=localStorage.getItem('theme');if(s)document.documentElement.setAttribute('data-theme',s);</script>
 
 <h1><span class="name">TODO</span><button id="theme" type="button" title="toggle light/dark">&#9681;</button></h1>
+<input type="file" id="file" accept="application/json,.json" hidden>
 <div id="app"></div>
 
 <script>
@@ -175,6 +176,42 @@ function subtree(t) {
   return data[t.board][t.list][t.n - 1];
 }
 
+// ── Export / Import the whole tree as JSON (same shape as the CLI's todos.json). ──
+function exportJson() {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+  a.download = 'todo.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+// Shape check at the trust boundary: { board: { list: [tasks] } }.
+function isTree(x) {
+  return x && typeof x === 'object' && !Array.isArray(x) &&
+    Object.values(x).every(lists => lists && typeof lists === 'object' && !Array.isArray(lists) &&
+      Object.values(lists).every(Array.isArray));
+}
+// Merge incoming into current: add missing boards/lists, append tasks not already
+// present (by text). Idempotent on re-import; defensively coerces each task.
+function mergeTree(into, incoming) {
+  for (const [b, lists] of Object.entries(incoming)) {
+    if (!(b in into)) into[b] = {};
+    for (const [l, tasks] of Object.entries(lists)) {
+      if (!(l in into[b])) into[b][l] = [];
+      const have = new Set(into[b][l].map(t => t.text));
+      for (const t of tasks) {
+        const text = String((t && t.text) || '').trim();
+        if (text && !have.has(text)) { into[b][l].push({ text, done: !!(t && t.done) }); have.add(text); }
+      }
+    }
+  }
+}
+function importJson(text) {
+  let incoming;
+  try { incoming = JSON.parse(text); } catch { alert('That file is not valid JSON.'); return; }
+  if (!isTree(incoming)) { alert('Expected JSON shaped like { board: { list: [ {text, done} ] } }.'); return; }
+  mutate(() => { mergeTree(data, incoming); const k = Object.keys(incoming)[0]; if (k) active = k; });
+}
+
 // ── Render the whole app from `data`; selection resets each render. ──
 function render() {
   if (!(active in data)) active = Object.keys(data)[0] || '';
@@ -190,6 +227,9 @@ function render() {
     <button id="t-dup" type="button" title="Duplicate (current board if none selected)">&#10697;</button>
     <button id="t-clip" type="button" title="Copy to clipboard (current board if none selected)">&#128203;</button>
     <button id="t-del" type="button" title="Delete (current board if none selected)">&#128465;</button>
+    <span class="bar"></span>
+    <button id="t-import" type="button" title="Import JSON (merge into your boards)">&#128229;</button>
+    <button id="t-export" type="button" title="Export all boards as JSON">&#128228;</button>
   </div>`;
 
   const pills = Object.keys(data).map(b =>
@@ -321,6 +361,8 @@ function bindAll() {
   b('t-dup').onclick = () => mutate(() => dup(target()));
   b('t-del').onclick = () => mutate(() => del(target()));
   b('t-clip').onclick = () => navigator.clipboard.writeText(JSON.stringify(subtree(sel ? dsOf(sel) : null), null, 2));
+  b('t-export').onclick = exportJson;
+  b('t-import').onclick = () => document.getElementById('file').click();
 
   document.querySelectorAll('.box').forEach(box =>
     box.onclick = () => mutate(() => toggleDone(box.dataset.board, box.dataset.list, +box.dataset.n)));
@@ -359,6 +401,13 @@ document.addEventListener('click', e => {
   if (e.target.closest('#toolbar') || e.target.closest('[data-kind]') || e.target.closest('#pills')) return;
   if (sel) select(sel);
 });
+document.getElementById('file').onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => { importJson(r.result); e.target.value = ''; };
+  r.readAsText(f);
+};
 
 render();
 </script>
