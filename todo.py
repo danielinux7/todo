@@ -11,7 +11,7 @@
   todo <board> <list> drop          delete the list
   todo <board> drop                 delete the board
 """
-import sys, json, os
+import sys, json, os, copy
 from typing import Any
 
 FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "todos.json")
@@ -93,6 +93,26 @@ def move_key(data, name, direction):
     if 0 <= j < len(keys):
         keys[i], keys[j] = keys[j], keys[i]
     return {k: data[k] for k in keys}
+
+
+def rename_key(data, old, new):
+    """Rename key `old` to `new`, keeping position. No-op on collision/empty/missing."""
+    new = new.strip()
+    if old not in data or not new or (new != old and new in data):
+        return data
+    return {new if k == old else k: v for k, v in data.items()}
+
+
+def copy_key(data, name):
+    """Insert a deep copy of `name` right after it, under a unique '<name> copy' key."""
+    if name not in data:
+        return data
+    new, i = name + " copy", 2
+    while new in data:
+        new, i = f"{name} copy {i}", i + 1
+    items = list(data.items())
+    items.insert(list(data).index(name) + 1, (new, copy.deepcopy(data[name])))
+    return dict(items)
 
 
 def order_keys(data, names):
