@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TODO</title>
+<style>
+  html { color-scheme: light dark; }
+  :root, :root[data-theme="light"] { --bg:#fff; --fg:#222; --muted:#999; --border:#ddd; --field:#fff; --accent:#2563eb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#181818; --fg:#e6e6e6; --muted:#888; --border:#3a3a3a; --field:#242424; --accent:#3b82f6; }
+  }
+  :root[data-theme="dark"] { --bg:#181818; --fg:#e6e6e6; --muted:#888; --border:#3a3a3a; --field:#242424; --accent:#3b82f6; }
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 72rem; margin: 2rem auto; padding: 0 1.5rem; background: var(--bg); color: var(--fg); }
+  h1 { display: flex; align-items: center; margin-bottom: 1rem; }
+  h1 .name { letter-spacing: .05em; }
+  #theme { cursor: pointer; background: none; border: 0; color: inherit; font-size: 1.3rem; padding: 0 .5rem; }
+  h2 { display: flex; align-items: center; gap: .3rem; font-size: 1.05rem; margin: 0 0 .2rem; }
+  ul { list-style: none; padding: 0; margin: 0; }
+  li { display: flex; align-items: center; gap: .3rem; padding: .15rem 0; }
+  li.empty { color: var(--muted); font-style: italic; }
+  .name, .text { flex: 1; }
+  li.done .text { text-decoration: line-through; color: var(--muted); }
+  .grip { cursor: grab; opacity: .35; }
+  .drag { opacity: .4; }
+  button { cursor: pointer; background: none; border: 0; font: inherit; padding: .15rem .25rem; color: inherit; opacity: .7; }
+  button:hover { opacity: 1; }
+  #toolbar { display: flex; align-items: center; gap: .15rem; margin: 1rem 0; padding: .3rem .4rem;
+    border: 1px solid var(--border); border-radius: .4rem; width: max-content; }
+  #toolbar button { font-size: 1.15rem; opacity: 1; padding: .25rem .5rem; border-radius: .3rem; }
+  #toolbar button:not(:disabled):hover { background: var(--field); }
+  #toolbar button:disabled { opacity: .25; cursor: default; }
+  #toolbar .bar { width: 1px; align-self: stretch; background: var(--border); margin: .15rem .3rem; }
+  [data-kind] { cursor: pointer; }
+  .selected { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: .2rem; }
+  .editing { outline: 2px solid var(--accent); background: var(--field); cursor: text;
+    border-radius: .2rem; padding: 0 .25rem; min-width: 5rem; }
+  .newedit { flex: 1; min-width: 5rem; }
+  h2 .newedit, #boardhead .newedit { font-weight: 600; }
+  #pills { display: flex; flex-wrap: wrap; gap: .4rem; margin: 1rem 0; }
+  .tab { padding: .25rem .7rem; border: 1px solid var(--border); border-radius: 999px; background: none; color: inherit; cursor: pointer; opacity: 1; }
+  .tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #boardhead { display: flex; align-items: center; gap: .3rem; margin: .5rem 0; font-size: 1.3rem; }
+  #boardhead .name { font-weight: 600; }
+  section { border-top: 1px solid var(--border); padding-top: .35rem; margin-top: .9rem; }
+</style>
+<script>var s=localStorage.getItem('theme');if(s)document.documentElement.setAttribute('data-theme',s);</script>
+
+<h1><span class="name">TODO</span><button id="theme" type="button" title="toggle light/dark">&#9681;</button></h1>
+<div id="app"></div>
+
+<script>
+"use strict";
+// ── Pure client-side TODO: boards > lists > tasks, in localStorage. No server. ──
+const KEY = 'todo.data', HISTORY = 10;
+const SEED = {
+  Work: {
+    "In progress": [
+      {text: "Wire up the auth flow", done: false},
+      {text: "Review Dana's PR", done: true},
+      {text: "Draft the launch email", done: false},
+    ],
+    Backlog: [
+      {text: "Migrate the old logs", done: false},
+      {text: "Spike: search ranking", done: false},
+    ],
+  },
+  Home: {
+    Errands: [
+      {text: "Pick up dry cleaning", done: true},
+      {text: "Book dentist", done: false},
+    ],
+    Groceries: [
+      {text: "Oat milk", done: false},
+      {text: "Coffee beans", done: false},
+      {text: "Tomatoes", done: false},
+    ],
+  },
+};
+
+const clone = x => JSON.parse(JSON.stringify(x));
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function load() { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } }
+function save() { localStorage.setItem(KEY, JSON.stringify(data)); }
+
+let data = load();
+if (!Object.keys(data).length) { data = clone(SEED); save(); }
+let active = Object.keys(data)[0] || '';
+let sel = null;
+const UNDO = [], REDO = [];
+
+// ── Mutations record a whole-document snapshot for undo (always correct, tiny). ──
+function mutate(fn) {
+  const before = clone(data);
+  fn();
+  if (JSON.stringify(data) !== JSON.stringify(before)) {
+    UNDO.push(before); if (UNDO.length > HISTORY) UNDO.shift(); REDO.length = 0;
+    save();
+  }
+  render();
+}
+function undo() { if (!UNDO.length) return; REDO.push(clone(data)); data = UNDO.pop(); save(); render(); }
+function redo() { if (!REDO.length) return; UNDO.push(clone(data)); data = REDO.pop(); save(); render(); }
+
+// ── Ordered-dict helpers (boards and lists are ordered objects). ──
+function moveKey(obj, name, dir) {
+  const keys = Object.keys(obj), i = keys.indexOf(name);
+  if (i < 0 || (dir !== 'up' && dir !== 'down')) return obj;
+  const j = dir === 'up' ? i - 1 : i + 1;
+  if (j < 0 || j >= keys.length) return obj;
+  [keys[i], keys[j]] = [keys[j], keys[i]];
+  const out = {}; keys.forEach(k => out[k] = obj[k]); return out;
+}
+function renameKey(obj, old, nw) {
+  nw = nw.trim();
+  if (!(old in obj) || !nw || (nw !== old && nw in obj)) return obj;
+  const out = {}; for (const k in obj) out[k === old ? nw : k] = obj[k]; return out;
+}
+function copyKey(obj, name) {
+  if (!(name in obj)) return obj;
+  let nn = name + ' copy', i = 2;
+  while (nn in obj) { nn = `${name} copy ${i}`; i++; }
+  const out = {}; for (const k in obj) { out[k] = obj[k]; if (k === name) out[nn] = clone(obj[name]); }
+  return out;
+}
+function orderKeys(obj, names) {
+  const cur = Object.keys(obj);
+  if (names.length !== cur.length ||
+      [...names].sort().join('\n') !== [...cur].sort().join('\n')) return obj;
+  const out = {}; names.forEach(k => out[k] = obj[k]); return out;
+}
+
+// ── Operations on a {kind, board, list, n} target. ──
+const dsOf = el => ({ kind: el.dataset.kind, board: el.dataset.board || '',
+  list: el.dataset.list || '', n: +el.dataset.n || 0 });
+const target = () => sel ? dsOf(sel) : { kind: 'board', board: active, list: '', n: 0 };
+
+function del(t) {
+  if (t.kind === 'board') { delete data[t.board]; if (t.board === active) active = Object.keys(data)[0] || ''; }
+  else if (t.kind === 'list') delete data[t.board][t.list];
+  else data[t.board][t.list].splice(t.n - 1, 1);
+}
+function dup(t) {
+  if (t.kind === 'board') data = copyKey(data, t.board);
+  else if (t.kind === 'list') data[t.board] = copyKey(data[t.board], t.list);
+  else { const a = data[t.board][t.list]; a.splice(t.n, 0, clone(a[t.n - 1])); }
+}
+function move(t, dir) {
+  if (t.kind === 'board') data = moveKey(data, t.board, dir);
+  else if (t.kind === 'list') data[t.board] = moveKey(data[t.board], t.list, dir);
+  else { const a = data[t.board][t.list], i = t.n - 1, j = dir === 'up' ? i - 1 : i + 1;
+    if (j >= 0 && j < a.length) [a[i], a[j]] = [a[j], a[i]]; }
+}
+function edit(t, text) {
+  text = text.trim();
+  if (t.kind === 'board') { const nd = renameKey(data, t.board, text);
+    if (nd !== data) { if (active === t.board) active = text; data = nd; } }
+  else if (t.kind === 'list') data[t.board] = renameKey(data[t.board], t.list, text);
+  else if (text) { const a = data[t.board][t.list]; a[t.n - 1] = { ...a[t.n - 1], text }; }
+}
+function addBoard(name) { name = name.trim(); if (name && !(name in data)) { data[name] = {}; active = name; } }
+function addList(board, name) { name = name.trim(); if (name && !(name in data[board])) data[board][name] = []; }
+function addTask(board, list, text) { text = text.trim(); if (text) data[board][list].push({ text, done: false }); }
+function toggleDone(board, list, n) { const t = data[board][list][n - 1]; t.done = !t.done; }
+function reorderTasks(board, list, idx) {
+  const a = data[board][list], ni = idx.map(x => +x - 1);
+  if ([...ni].sort((x, y) => x - y).join(',') !== a.map((_, i) => i).join(',')) return;
+  data[board][list] = ni.map(i => a[i]);
+}
+// Subtree for clipboard copy: board+lists+tasks / list+tasks / a single task.
+function subtree(t) {
+  if (!t || t.kind === 'board') { const b = (t && t.board) || active; return { [b]: data[b] }; }
+  if (t.kind === 'list') return { [t.list]: data[t.board][t.list] };
+  return data[t.board][t.list][t.n - 1];
+}
+
+// ── Render the whole app from `data`; selection resets each render. ──
+function render() {
+  if (!(active in data)) active = Object.keys(data)[0] || '';
+  const toolbar = `<div id="toolbar">
+    <button id="t-undo" type="button" title="Undo" ${UNDO.length ? '' : 'disabled'}>&#8634;</button>
+    <button id="t-redo" type="button" title="Redo" ${REDO.length ? '' : 'disabled'}>&#8635;</button>
+    <span class="bar"></span>
+    <button id="t-add" type="button" title="Add (board / list / task by what's selected)">&#43;</button>
+    <button id="t-up" type="button" title="Move up" disabled>&#8593;</button>
+    <button id="t-down" type="button" title="Move down" disabled>&#8595;</button>
+    <span class="bar"></span>
+    <button id="t-edit" type="button" title="Edit inline" disabled>&#9998;</button>
+    <button id="t-dup" type="button" title="Duplicate (current board if none selected)">&#10697;</button>
+    <button id="t-clip" type="button" title="Copy to clipboard (current board if none selected)">&#128203;</button>
+    <button id="t-del" type="button" title="Delete (current board if none selected)">&#128465;</button>
+  </div>`;
+
+  const pills = Object.keys(data).map(b =>
+    `<button class="tab${b === active ? ' active' : ''}" data-name="${esc(b)}" draggable="true">${esc(b)}</button>`
+  ).join('');
+  const pillsHtml = pills ? `<nav id="pills">${pills}</nav>` : '';
+
+  let boardHtml;
+  if (active) {
+    const eb = esc(active);
+    const sections = Object.entries(data[active]).map(([name, tasks]) => {
+      const el = esc(name);
+      const items = tasks.length ? tasks.map((t, i) => {
+        const n = i + 1, et = esc(t.text);
+        return `<li class="${t.done ? 'done' : ''}" draggable="true" data-n="${n}">
+          <span class="grip" title="drag to reorder">&#10303;</span>
+          <button class="box" data-board="${eb}" data-list="${el}" data-n="${n}" title="toggle">${t.done ? '&#9745;' : '&#9744;'}</button>
+          <span class="text" data-kind="item" data-board="${eb}" data-list="${el}" data-n="${n}" data-text="${et}">${et}</span>
+        </li>`;
+      }).join('') : '<li class="empty">empty</li>';
+      return `<section data-list="${el}">
+        <h2><span class="grip" draggable="true" title="drag to reorder">&#10303;</span>
+          <span class="name" data-kind="list" data-board="${eb}" data-list="${el}">${el}</span></h2>
+        <ul data-board="${eb}" data-list="${el}">${items}</ul>
+      </section>`;
+    }).join('') || '<p>No lists yet. Add one above.</p>';
+    boardHtml = `<div id="board"><div id="boardhead">
+      <span class="name" data-kind="board" data-board="${eb}">${eb}</span></div>
+      <div id="lists" data-board="${eb}">${sections}</div></div>`;
+  } else {
+    boardHtml = '<p>Create a board to get started.</p>';
+  }
+
+  document.getElementById('app').innerHTML = toolbar + pillsHtml + boardHtml;
+  bindAll();
+}
+
+// ── Inline editor: new and existing elements share one commit rule. ──
+// empty -> delete (added: discard; existing: remove). Enter/blur commit, Esc cancels.
+function inlineEdit(el, isAdd) {
+  const orig = isAdd ? '' : (el.dataset.text ?? el.dataset.list ?? el.dataset.board);
+  el.contentEditable = 'true';
+  el.classList.add('editing');
+  el.focus();
+  const r = document.createRange(); r.selectNodeContents(el);
+  const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+  let done = false;
+  const commit = saveIt => {
+    if (done) return; done = true;
+    el.contentEditable = 'false'; el.classList.remove('editing');
+    const val = el.textContent.trim();
+    if (!saveIt) { isAdd ? el.remove() : render(); return; }
+    if (isAdd) {
+      if (!val) return el.remove();
+      const d = el.dataset;
+      if (d.add === 'board') mutate(() => addBoard(val));
+      else if (d.add === 'list') mutate(() => addList(d.board, val));
+      else mutate(() => addTask(d.board, d.list, val));
+    } else {
+      const t = dsOf(el);
+      if (!val) mutate(() => del(t));
+      else if (val !== orig) mutate(() => edit(t, val));
+      else render();
+    }
+  };
+  el.onkeydown = e => {
+    if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+  };
+  el.onblur = () => commit(true);
+}
+
+const findUl = (board, list) =>
+  [...document.querySelectorAll('ul[data-list]')].find(u => u.dataset.board === board && u.dataset.list === list);
+
+// Add: empty inline field as a child of the selection (board->list, list/task->task),
+// or a new board when nothing is selected. Empty -> nothing created.
+function onAdd() {
+  const span = document.createElement('span');
+  span.className = 'newedit';
+  if (!sel) {
+    span.dataset.add = 'board';
+    let pills = document.getElementById('pills');
+    if (!pills) { pills = document.createElement('nav'); pills.id = 'pills'; document.getElementById('toolbar').after(pills); }
+    span.classList.add('tab');
+    pills.appendChild(span);
+  } else if (sel.dataset.kind === 'board') {
+    span.dataset.add = 'list'; span.dataset.board = sel.dataset.board;
+    const sec = document.createElement('section'), h = document.createElement('h2');
+    h.appendChild(span); sec.appendChild(h);
+    document.getElementById('lists').appendChild(sec);
+  } else {
+    span.dataset.add = 'task'; span.dataset.board = sel.dataset.board; span.dataset.list = sel.dataset.list;
+    const li = document.createElement('li'); li.appendChild(span);
+    findUl(sel.dataset.board, sel.dataset.list).appendChild(li);
+  }
+  inlineEdit(span, true);
+}
+
+function select(el) {
+  if (sel) sel.classList.remove('selected');
+  sel = sel === el ? null : el;
+  if (sel) sel.classList.add('selected');
+  ['t-up', 't-down', 't-edit'].forEach(id => document.getElementById(id).disabled = !sel);
+}
+
+function sortable(container, sel, onDrop) {
+  let dragged = null;
+  container.addEventListener('dragstart', e => { dragged = e.target.closest(sel); if (dragged) dragged.classList.add('drag'); });
+  container.addEventListener('dragover', e => {
+    if (!dragged || dragged.parentElement !== container) return;
+    e.preventDefault();
+    const after = [...container.querySelectorAll(sel + ':not(.drag)')]
+      .find(el => e.clientY < el.getBoundingClientRect().top + el.offsetHeight / 2);
+    container.insertBefore(dragged, after || null);
+  });
+  container.addEventListener('dragend', () => { if (!dragged) return; dragged.classList.remove('drag'); onDrop(); dragged = null; });
+}
+
+function bindAll() {
+  sel = null;
+  const b = id => document.getElementById(id);
+  b('t-undo').onclick = undo;
+  b('t-redo').onclick = redo;
+  b('t-add').onclick = onAdd;
+  b('t-up').onclick = () => sel && mutate(() => move(dsOf(sel), 'up'));
+  b('t-down').onclick = () => sel && mutate(() => move(dsOf(sel), 'down'));
+  b('t-edit').onclick = () => sel && inlineEdit(sel, false);
+  b('t-dup').onclick = () => mutate(() => dup(target()));
+  b('t-del').onclick = () => mutate(() => del(target()));
+  b('t-clip').onclick = () => navigator.clipboard.writeText(JSON.stringify(subtree(sel ? dsOf(sel) : null), null, 2));
+
+  document.querySelectorAll('.box').forEach(box =>
+    box.onclick = () => mutate(() => toggleDone(box.dataset.board, box.dataset.list, +box.dataset.n)));
+  document.querySelectorAll('#pills .tab').forEach(p =>
+    p.onclick = () => { active = p.dataset.name; render(); });
+  document.querySelectorAll('[data-kind]').forEach(el =>
+    el.onclick = () => { if (!el.isContentEditable) select(el); });
+
+  const pills = document.getElementById('pills');
+  if (pills) sortable(pills, '.tab', () => {
+    const names = [...pills.querySelectorAll('.tab')].map(t => t.dataset.name);
+    mutate(() => { data = orderKeys(data, names); });
+  });
+  const lists = document.getElementById('lists');
+  if (lists) sortable(lists, 'section[data-list]', () => {
+    const bd = lists.dataset.board, names = [...lists.querySelectorAll('section[data-list]')].map(s => s.dataset.list);
+    mutate(() => { data[bd] = orderKeys(data[bd], names); });
+  });
+  document.querySelectorAll('ul[data-list]').forEach(ul => sortable(ul, 'li[data-n]', () => {
+    const order = [...ul.querySelectorAll('li[data-n]')].map(li => li.dataset.n);
+    mutate(() => reorderTasks(ul.dataset.board, ul.dataset.list, order));
+  }));
+}
+
+// ── One-time wiring: theme toggle and background-click deselect. ──
+const root = document.documentElement;
+document.getElementById('theme').onclick = () => {
+  const cur = root.getAttribute('data-theme')
+    || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  const next = cur === 'dark' ? 'light' : 'dark';
+  root.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+};
+document.addEventListener('click', e => {
+  if (document.querySelector('.editing')) return;
+  if (e.target.closest('#toolbar') || e.target.closest('[data-kind]') || e.target.closest('#pills')) return;
+  if (sel) select(sel);
+});
+
+render();
+</script>
