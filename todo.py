@@ -1,34 +1,43 @@
 #!/usr/bin/env python3
-"""Tiny todo list with multiple lists.
+"""Tiny todo: boards > lists > tasks.
 
-  todo                      list all lists
-  todo <list>               show tasks in <list>
-  todo <list> add <text>    add a task (creates the list)
-  todo <list> done <n>      toggle task n done/undone
-  todo <list> up|down <n>   move task n up or down
-  todo <list> rm <n>        remove task n
-  todo <list> drop          delete the whole list
+  todo                              list all boards
+  todo <board>                      list the lists in a board
+  todo <board> <list>              show tasks in a list
+  todo <board> <list> add <text>    add a task (creates board/list as needed)
+  todo <board> <list> done <n>      toggle task n done/undone
+  todo <board> <list> up|down <n>   move task n up or down
+  todo <board> <list> rm <n>        remove task n
+  todo <board> <list> drop          delete the list
+  todo <board> drop                 delete the board
 """
 import sys, json, os
+from typing import Any
 
 FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "todos.json")
 
 
-def load():
-    """Return {list_name: [todos]}. Migrates the old single-list file."""
-    try:
-        with open(FILE) as f:
-            data = json.load(f)
-    except FileNotFoundError:
-        return {}
-    if isinstance(data, list):  # old format: one unnamed list
-        return {"todo": data} if data else {}
+def migrate(data) -> dict[str, Any]:
+    """Upgrade older formats to {board: {list: [tasks]}}."""
+    if isinstance(data, list):  # oldest: one unnamed task list
+        data = {"todo": data} if data else {}
+    if data and all(isinstance(v, list) for v in data.values()):  # {list: [tasks]}
+        data = {board: ({"Tasks": tasks} if tasks else {}) for board, tasks in data.items()}
     return data
 
 
-def save(todos):
+def load() -> dict[str, Any]:
+    """Return {board: {list: [tasks]}}, migrating older files."""
+    try:
+        with open(FILE) as f:
+            return migrate(json.load(f))
+    except FileNotFoundError:
+        return {}
+
+
+def save(data):
     with open(FILE, "w") as f:
-        json.dump(todos, f, indent=2)
+        json.dump(data, f, indent=2)
 
 
 def show(todos):
@@ -40,17 +49,17 @@ def show(todos):
 
 
 def apply(todos, cmd, args):
-    """Return new list after applying cmd. Raise ValueError on bad input."""
+    """Return a new task list after applying cmd. Raise ValueError on bad input."""
     if cmd == "add":
         text = " ".join(args).strip()
         if not text:
-            raise ValueError("add what? usage: todo <list> add <text>")
+            raise ValueError("add what? usage: todo <board> <list> add <text>")
         return todos + [{"text": text, "done": False}]
     if cmd in ("done", "rm", "up", "down"):
         try:
             n = int(args[0]) - 1
         except (IndexError, ValueError):
-            raise ValueError(f"usage: todo <list> {cmd} <task number>")
+            raise ValueError(f"usage: todo <board> <list> {cmd} <task number>")
         if not 0 <= n < len(todos):
             raise ValueError(f"no task {n + 1} (have {len(todos)})")
         todos = [dict(t) for t in todos]
@@ -75,7 +84,7 @@ def apply(todos, cmd, args):
 
 
 def move_key(data, name, direction):
-    """Move list `name` up/down among the lists. Returns a reordered dict."""
+    """Move key `name` up/down among the keys of `data`. Returns a reordered dict."""
     keys = list(data)
     if name not in keys or direction not in ("up", "down"):
         return data
@@ -87,7 +96,7 @@ def move_key(data, name, direction):
 
 
 def order_keys(data, names):
-    """Reorder lists to match `names`. No-op unless `names` is exactly all current names."""
+    """Reorder `data` to match `names`. No-op unless `names` is exactly all current keys."""
     if sorted(names) != sorted(data):
         return data
     return {k: data[k] for k in names}
@@ -95,30 +104,47 @@ def order_keys(data, names):
 
 def main(argv):
     data = load()
-    if not argv:  # list all lists
+    if not argv:  # list boards
         if not data:
-            print("No lists. Create one: todo <list> add <text>")
+            print("No boards. Create: todo <board> <list> add <text>")
             return
-        for name, todos in data.items():
-            done = sum(t["done"] for t in todos)
-            print(f"{name} ({done}/{len(todos)})")
+        for board, lists in data.items():
+            tasks = sum(len(t) for t in lists.values())
+            print(f"{board} ({len(lists)} lists, {tasks} tasks)")
         return
-    name, rest = argv[0], argv[1:]
-    if not rest:  # show one list
-        show(data.get(name, []))
-        return
-    if rest[0] == "drop":  # delete a whole list
-        if data.pop(name, None) is None:
-            sys.exit(f"no list '{name}'")
+    board, rest = argv[0], argv[1:]
+    if rest == ["drop"]:  # delete a board
+        if data.pop(board, None) is None:
+            sys.exit(f"no board '{board}'")
         save(data)
-        print(f"dropped '{name}'")
+        print(f"dropped board '{board}'")
+        return
+    lists = data.get(board, {})
+    if not rest:  # list the lists in a board
+        if not lists:
+            print(f"(no lists in '{board}')")
+        for name, tasks in lists.items():
+            done = sum(t["done"] for t in tasks)
+            print(f"{name} ({done}/{len(tasks)})")
+        return
+    name, rest = rest[0], rest[1:]
+    if rest == ["drop"]:  # delete a list
+        if lists.pop(name, None) is None:
+            sys.exit(f"no list '{name}' in '{board}'")
+        data[board] = lists
+        save(data)
+        print(f"dropped list '{name}'")
+        return
+    if not rest:  # show tasks in a list
+        show(lists.get(name, []))
         return
     try:
-        data[name] = apply(data.get(name, []), rest[0], rest[1:])
+        lists[name] = apply(lists.get(name, []), rest[0], rest[1:])
     except ValueError as e:
         sys.exit(str(e))
+    data[board] = lists
     save(data)
-    show(data[name])
+    show(lists[name])
 
 
 if __name__ == "__main__":

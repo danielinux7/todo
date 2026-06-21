@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Web UI for the todo lists. Run: ./server.py  (starts the server and opens your browser)."""
+"""Web UI for the todo boards. Run: ./server.py  (starts the server and opens your browser)."""
 import html
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,10 +21,10 @@ PAGE = """<!doctype html>
     :root {{ --bg:#181818; --fg:#e6e6e6; --muted:#888; --border:#3a3a3a; --field:#242424; --accent:#3b82f6; }}
   }}
   :root[data-theme="dark"] {{ --bg:#181818; --fg:#e6e6e6; --muted:#888; --border:#3a3a3a; --field:#242424; --accent:#3b82f6; }}
-  body {{ font: 16px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 3rem auto; padding: 0 1rem; background: var(--bg); color: var(--fg); }}
+  body {{ font: 16px/1.5 system-ui, sans-serif; max-width: 52rem; margin: 3rem auto; padding: 0 1rem; background: var(--bg); color: var(--fg); }}
   h1 {{ display: flex; align-items: center; margin-bottom: 1rem; }}
   #theme {{ cursor: pointer; background: none; border: 0; color: inherit; font-size: 1.3rem; padding: 0; }}
-  h2 {{ display: flex; align-items: center; gap: .3rem; font-size: 1.1rem; margin: 1rem 0 .3rem; }}
+  h2 {{ display: flex; align-items: center; gap: .3rem; font-size: 1.05rem; margin: 0 0 .2rem; }}
   ul {{ list-style: none; padding: 0; margin: 0; }}
   li {{ display: flex; align-items: center; gap: .3rem; padding: .15rem 0; }}
   li.empty {{ color: var(--muted); font-style: italic; }}
@@ -37,55 +37,81 @@ PAGE = """<!doctype html>
   form.add {{ display: flex; gap: .5rem; margin: .3rem 0 0; }}
   form.add input {{ flex: 1; padding: .4rem; background: var(--field); color: var(--fg); border: 1px solid var(--border); border-radius: .3rem; }}
   form.add button {{ opacity: 1; }}
+  .add.hidden {{ display: none; }}
+  .add-btn {{ font-size: 1.2rem; line-height: 1; }}
   form.inline {{ display: inline; white-space: nowrap; }}
-  #tabs {{ display: flex; flex-wrap: wrap; gap: .4rem; margin: 1rem 0; }}
+  #pills {{ display: flex; flex-wrap: wrap; gap: .4rem; margin: 1rem 0; }}
   .tab {{ padding: .25rem .7rem; border: 1px solid var(--border); border-radius: 999px; text-decoration: none; color: inherit; cursor: pointer; }}
   .tab.active {{ background: var(--accent); border-color: var(--accent); color: #fff; }}
+  #boardhead {{ display: flex; align-items: center; gap: .3rem; margin: .5rem 0; font-size: 1.3rem; }}
+  #boardhead .name {{ font-weight: 600; }}
+  section {{ border-top: 1px solid var(--border); padding-top: .35rem; margin-top: .9rem; }}
 </style>
 <script>var s=localStorage.getItem('theme');if(s)document.documentElement.setAttribute('data-theme',s);</script>
 <h1><span class="name">todo</span><button id="theme" type="button" title="toggle light/dark">&#9681;</button></h1>
-<form class="add" action="/newlist" method="post">
-  <input name="name" placeholder="New list" required>
-  <button>Add list</button>
+<form class="add" action="/addboard" method="post">
+  <input name="name" placeholder="New board" required>
+  <button>Add board</button>
 </form>
-{nav}
-{panel}
+{pills}
+{board}
 """
 
-PANEL = """<section id="active">
-  <h2><span class="name">{name}</span>
-    <form class="inline" action="/movelist" method="post">
-      <input type="hidden" name="list" value="{name}">
-      <button name="dir" value="up" title="move list left">&#8249;</button>
-      <button name="dir" value="down" title="move list right">&#8250;</button></form>
-    <form class="inline" action="/droplist" method="post">
-      <input type="hidden" name="list" value="{name}">
-      <button title="delete list">&#10005;</button></form>
-  </h2>
-  <ul data-list="{name}">{items}</ul>
-  <form class="add" action="/add" method="post">
-    <input type="hidden" name="list" value="{name}">
-    <input name="text" placeholder="Add a task" autofocus required>
+BOARD = """<div id="board">
+  <div id="boardhead">
+    <form class="inline" action="/moveboard" method="post">
+      <input type="hidden" name="board" value="{bname}">
+      <button name="dir" value="up" title="move board left">&#8249;</button>
+      <button name="dir" value="down" title="move board right">&#8250;</button></form>
+    <span class="name">{bname}</span>
+    <button class="add-btn" type="button" title="add a list">+</button>
+    <form class="inline" action="/dropboard" method="post">
+      <input type="hidden" name="board" value="{bname}">
+      <button title="delete board">&#10005;</button></form>
+  </div>
+  <form class="add hidden" action="/addlist" method="post">
+    <input type="hidden" name="board" value="{bname}">
+    <input name="name" placeholder="New list" required>
     <button>Add</button>
   </form>
+  <div id="lists" data-board="{bname}">{lists}</div>
+</div>"""
+
+LIST = """<section data-list="{list}">
+  <h2><span class="grip" draggable="true" title="drag to reorder">&#10303;</span><span class="name">{list}</span>
+    <button class="add-btn" type="button" title="add an item">+</button>
+    <form class="inline" action="/movelist" method="post">
+      <input type="hidden" name="board" value="{board}"><input type="hidden" name="list" value="{list}">
+      <button name="dir" value="up" title="move list up">&#8593;</button>
+      <button name="dir" value="down" title="move list down">&#8595;</button></form>
+    <form class="inline" action="/droplist" method="post">
+      <input type="hidden" name="board" value="{board}"><input type="hidden" name="list" value="{list}">
+      <button title="delete list">&#10005;</button></form>
+  </h2>
+  <form class="add hidden" action="/add" method="post">
+    <input type="hidden" name="board" value="{board}"><input type="hidden" name="list" value="{list}">
+    <input name="text" placeholder="New item" required>
+    <button>Add</button>
+  </form>
+  <ul data-board="{board}" data-list="{list}">{items}</ul>
 </section>"""
 
 ITEM = """<li class="{cls}" draggable="true" data-n="{n}">
   <span class="grip" title="drag to reorder">&#10303;</span>
   <form class="inline" action="/done" method="post">
-    <input type="hidden" name="list" value="{name}"><input type="hidden" name="n" value="{n}">
+    <input type="hidden" name="board" value="{board}"><input type="hidden" name="list" value="{list}"><input type="hidden" name="n" value="{n}">
     <button title="toggle">{box}</button></form>
   <span class="text">{text}</span>
   <form class="inline" action="/move" method="post">
-    <input type="hidden" name="list" value="{name}"><input type="hidden" name="n" value="{n}">
+    <input type="hidden" name="board" value="{board}"><input type="hidden" name="list" value="{list}"><input type="hidden" name="n" value="{n}">
     <button name="dir" value="up" title="move up">&#8593;</button>
     <button name="dir" value="down" title="move down">&#8595;</button></form>
   <form class="inline" action="/rm" method="post">
-    <input type="hidden" name="list" value="{name}"><input type="hidden" name="n" value="{n}">
+    <input type="hidden" name="board" value="{board}"><input type="hidden" name="list" value="{list}"><input type="hidden" name="n" value="{n}">
     <button title="delete">&#10005;</button></form>
 </li>"""
 
-TAB = '<a class="tab{cls}" href="/?list={url}" data-name="{esc}" draggable="true">{esc}</a>'
+PILL = '<a class="tab{cls}" href="/?board={url}" data-name="{esc}" draggable="true">{esc}</a>'
 
 SCRIPT = """<script>
 const root = document.documentElement;
@@ -122,44 +148,64 @@ function persist(url, body) {
   fetch(url, {method: 'POST', body}).then(() => location.reload());
 }
 
+const pills = document.getElementById('pills');
+if (pills) sortable(pills, '.tab', () => {
+  const body = new URLSearchParams();
+  pills.querySelectorAll('.tab').forEach(t => body.append('board', t.dataset.name));
+  persist('/reorderboards', body);
+});
+
+const lists = document.getElementById('lists');
+if (lists) sortable(lists, 'section[data-list]', () => {
+  const body = new URLSearchParams();
+  body.append('board', lists.dataset.board);
+  lists.querySelectorAll('section[data-list]').forEach(s => body.append('list', s.dataset.list));
+  persist('/reorderlists', body);
+});
+
 document.querySelectorAll('ul[data-list]').forEach(ul => sortable(ul, 'li[data-n]', () => {
   const order = [...ul.querySelectorAll('li[data-n]')].map(li => li.dataset.n).join(',');
-  persist('/reorder', new URLSearchParams({list: ul.dataset.list, order}));
+  persist('/reorder', new URLSearchParams({board: ul.dataset.board, list: ul.dataset.list, order}));
 }));
 
-const tabs = document.getElementById('tabs');
-if (tabs) sortable(tabs, '.tab', () => {
-  const body = new URLSearchParams();
-  tabs.querySelectorAll('.tab').forEach(t => body.append('list', t.dataset.name));
-  persist('/reorderlists', body);
+document.querySelectorAll('.add-btn').forEach(btn => btn.onclick = () => {
+  const form = btn.closest('section, #board').querySelector('form.add');
+  form.classList.toggle('hidden');
+  if (!form.classList.contains('hidden')) form.querySelector('input[name="name"], input[name="text"]').focus();
 });
 </script>"""
 
 
+def render_list(board, name, tasks):
+    eb, el = html.escape(board), html.escape(name)
+    items = "".join(
+        ITEM.format(
+            cls="done" if t["done"] else "",
+            board=eb, list=el, n=i,
+            box="&#9745;" if t["done"] else "&#9744;",
+            text=html.escape(t["text"]),
+        )
+        for i, t in enumerate(tasks, 1)
+    ) or '<li class="empty">empty</li>'
+    return LIST.format(board=eb, list=el, items=items)
+
+
 def render(data, active):
-    names = list(data)
+    boards = list(data)
     if active not in data:
-        active = names[0] if names else ""
-    nav = "".join(
-        TAB.format(cls=" active" if n == active else "", url=html.escape(quote(n)), esc=html.escape(n))
-        for n in names
+        active = boards[0] if boards else ""
+    pills = "".join(
+        PILL.format(cls=" active" if b == active else "", url=html.escape(quote(b)), esc=html.escape(b))
+        for b in boards
     )
-    nav = '<nav id="tabs">{}</nav>'.format(nav) if nav else ""
+    pills = '<nav id="pills">{}</nav>'.format(pills) if pills else ""
     if active:
-        items = "".join(
-            ITEM.format(
-                cls="done" if t["done"] else "",
-                name=html.escape(active),
-                n=i,
-                box="&#9745;" if t["done"] else "&#9744;",
-                text=html.escape(t["text"]),
-            )
-            for i, t in enumerate(data[active], 1)
-        ) or '<li class="empty">empty</li>'
-        panel = PANEL.format(name=html.escape(active), items=items)
+        sections = "".join(render_list(active, name, tasks) for name, tasks in data[active].items())
+        sections = sections or "<p>No lists yet. Add one above.</p>"
+        board = BOARD.format(bname=html.escape(active), lists=sections)
     else:
-        panel = "<p>Create a list to get started.</p>"
-    return (PAGE.format(nav=nav, panel=panel) + SCRIPT).encode()
+        board = "<p>Create a board to get started.</p>"
+    return (PAGE.format(pills=pills, board=board) + SCRIPT).encode()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -168,7 +214,7 @@ class Handler(BaseHTTPRequestHandler):
         if parts.path != "/":
             self.send_error(404)
             return
-        active = parse_qs(parts.query).get("list", [""])[0]
+        active = parse_qs(parts.query).get("board", [""])[0]
         body = render(load(), active)
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -181,32 +227,47 @@ class Handler(BaseHTTPRequestHandler):
         form = parse_qs(self.rfile.read(length).decode())
         first = lambda k: form.get(k, [""])[0]
         data = load()
-        stay = first("list")  # list to return to after the action
+        board = first("board")
+        stay = board  # board to return to after the action
         try:
-            if self.path == "/newlist":
+            if self.path == "/addboard":
                 name = first("name").strip()
                 if name and name not in data:
-                    data[name] = []
+                    data[name] = {}
                 stay = name
-            elif self.path == "/droplist":
-                data.pop(first("list"), None)
+            elif self.path == "/dropboard":
+                data.pop(board, None)
                 stay = ""
-            elif self.path == "/movelist":
-                data = move_key(data, first("list"), first("dir"))
-            elif self.path == "/reorderlists":
-                data = order_keys(data, form.get("list", []))
+            elif self.path == "/moveboard":
+                data = move_key(data, board, first("dir"))
+            elif self.path == "/reorderboards":
+                data = order_keys(data, form.get("board", []))
+            elif self.path in ("/addlist", "/droplist", "/movelist", "/reorderlists"):
+                lists = data.get(board)
+                if lists is not None:
+                    if self.path == "/addlist":
+                        name = first("name").strip()
+                        if name and name not in lists:
+                            lists[name] = []
+                    elif self.path == "/droplist":
+                        lists.pop(first("list"), None)
+                    elif self.path == "/movelist":
+                        data[board] = move_key(lists, first("list"), first("dir"))
+                    else:  # /reorderlists
+                        data[board] = order_keys(lists, form.get("list", []))
             elif self.path in ("/add", "/done", "/rm", "/move", "/reorder"):
+                lists = data.get(board)
                 name = first("list")
-                if self.path == "/add":
-                    cmd, arg = "add", [first("text")]
-                elif self.path == "/move":
-                    cmd, arg = first("dir"), [first("n")]
-                elif self.path == "/reorder":
-                    cmd, arg = "order", first("order").split(",")
-                else:
-                    cmd, arg = self.path[1:], [first("n")]
-                if name:
-                    data[name] = apply(data.get(name, []), cmd, arg)
+                if lists is not None and name in lists:
+                    if self.path == "/add":
+                        cmd, arg = "add", [first("text")]
+                    elif self.path == "/move":
+                        cmd, arg = first("dir"), [first("n")]
+                    elif self.path == "/reorder":
+                        cmd, arg = "order", first("order").split(",")
+                    else:
+                        cmd, arg = self.path[1:], [first("n")]
+                    lists[name] = apply(lists[name], cmd, arg)
             else:
                 self.send_error(404)
                 return
@@ -214,7 +275,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             pass  # ponytail: bad input -> ignore, just re-render
         self.send_response(303)
-        self.send_header("Location", "/?list=" + quote(stay) if stay else "/")
+        self.send_header("Location", "/?board=" + quote(stay) if stay else "/")
         self.end_headers()
 
     def log_message(self, format, *args):
