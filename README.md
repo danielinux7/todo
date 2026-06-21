@@ -1,17 +1,14 @@
 # TODO
 
-A tiny **boards › lists › tasks** todo app. Two ways to run the exact same data model:
+A tiny **boards › lists › tasks** todo app in a single file: pure HTML/CSS/JS, state in `localStorage`. No server, no build, no dependencies.
 
-- **[Static web app](index.html)** — pure HTML/CSS/JS, state in `localStorage`. No server, no build, no dependencies. This is what gets published to GitHub Pages.
-- **CLI + local server** — `todo.py` (command line) and `server.py` (stdlib `http.server`), state in `todos.json`. Python 3, standard library only.
+**Live:** https://danielinux7.github.io/todo/
 
 ![TODO — light](docs/screenshot-light.png)
 
 ## Try it
 
-- **Web:** open `index.html` in a browser (or visit the GitHub Pages URL). Everything is saved in your browser's `localStorage` — it never leaves your machine.
-- **Local server:** `python3 server.py` → opens `http://localhost:8000`.
-- **CLI:** `python3 todo.py` (run with no args for usage).
+Open [`index.html`](index.html) in a browser, or visit the [live page](https://danielinux7.github.io/todo/). Everything is saved in your browser's `localStorage` — it never leaves your machine (and so does not sync across devices).
 
 ## Quick guide
 
@@ -39,4 +36,4 @@ More:
 
 ## How it works
 
-The data is one ordered tree: `{ board: { list: [ {text, done}, … ] } }`. Every change records a whole-document snapshot for undo/redo — simple and always correct for data this small. The web and CLI versions share the same model and helper logic (`move`, `rename`, `duplicate`, `reorder`); the only difference is where it's stored (`localStorage` vs `todos.json`).
+The data is one ordered tree: `{ board: { list: [ {text, done}, … ] } }`, kept in `localStorage`. Every change records a whole-document snapshot for undo/redo — simple and always correct for data this small.
