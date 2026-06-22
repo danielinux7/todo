@@ -24,6 +24,7 @@
     z-index: 20; opacity: 1; font-size: .9rem; padding: .55rem 1.1rem; border: 0; border-radius: 999px;
     background: var(--accent); color: #fff; box-shadow: 0 3px 12px rgba(0,0,0,.35); }
   h1 .name { letter-spacing: .05em; flex: 0 0 auto; margin-right: auto; }
+  #drive { cursor: pointer; background: none; border: 0; opacity: 1; font-size: 1.15rem; line-height: 1; padding: 0 .15rem; }
   #theme { cursor: pointer; background: none; border: 0; color: inherit; font-size: 1.3rem; padding: 0 0 0 .5rem; }
   h2 { display: flex; align-items: center; gap: .3rem; font-size: 1.05rem; margin: 0 0 .2rem; }
   ul { list-style: none; padding: 0; margin: 0; }
@@ -71,6 +72,7 @@
 
 <h1><span class="name">TODO</span>
   <button id="install" type="button" hidden>Install app</button>
+  <button id="drive" type="button" title="Sync with Google Drive">&#9729;</button>
   <button id="theme" type="button" title="toggle light/dark">&#9681;</button></h1>
 <input type="file" id="file" accept="application/json,.json" hidden>
 <div id="app"></div>
@@ -112,6 +114,13 @@ const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
 function load() { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } }
 function save() { localStorage.setItem(KEY, JSON.stringify(data)); }
 
+// Drive sync (below) hooks in here: every local change stamps a rev so the newest
+// edit wins across devices. The seed deliberately doesn't stamp — see touched().
+const REV = 'todo.rev';
+let localRev = +localStorage.getItem(REV) || 0;
+let onChange = null;
+function touched() { localRev = Date.now(); localStorage.setItem(REV, localRev); if (onChange) onChange(); }
+
 let data = load();
 if (!Object.keys(data).length) { data = clone(SEED); save(); }
 let active = Object.keys(data)[0] || '';
@@ -124,12 +133,12 @@ function mutate(fn) {
   fn();
   if (JSON.stringify(data) !== JSON.stringify(before)) {
     UNDO.push(before); if (UNDO.length > HISTORY) UNDO.shift(); REDO.length = 0;
-    save();
+    save(); touched();
   }
   render();
 }
-function undo() { if (!UNDO.length) return; REDO.push(clone(data)); data = UNDO.pop(); save(); render(); }
-function redo() { if (!REDO.length) return; UNDO.push(clone(data)); data = REDO.pop(); save(); render(); }
+function undo() { if (!UNDO.length) return; REDO.push(clone(data)); data = UNDO.pop(); save(); touched(); render(); }
+function redo() { if (!REDO.length) return; UNDO.push(clone(data)); data = REDO.pop(); save(); touched(); render(); }
 
 // ── Ordered-dict helpers (boards and lists are ordered objects). ──
 function moveKey(obj, name, dir) {
@@ -495,4 +504,140 @@ addEventListener('beforeinstallprompt', e => {
   btn.onclick = () => { btn.hidden = true; deferredPrompt.prompt(); deferredPrompt = null; };
 });
 addEventListener('appinstalled', () => document.getElementById('install').hidden = true);
+</script>
+
+<script>
+// ── Optional Google Drive sync — keeps todo.data in the app's private Drive folder ──
+// Personal use: leave the OAuth app in "testing" mode and whitelist your Google
+// account(s). Scope is drive.appdata, so we only ever touch our own hidden file —
+// never the rest of your Drive. The Google sign-in library loads only once a client
+// ID is set, so nobody who hasn't configured this pulls in third-party script.
+// ponytail: last-write-wins by the rev timestamp, no merge — right for one user, many devices.
+"use strict";
+const DRIVE_CLIENT_ID = '1011818309649-r7j68lf0d5m88s80rejla225nh9vm7kp.apps.googleusercontent.com';
+const DRIVE_FILE = 'todo.json';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+let tokenClient, accessToken = '', tokenExp = 0, fileId = null, pushTimer;
+const driveBtn = document.getElementById('drive');
+const driveOn = () => localStorage.getItem('todo.drive') === '1';
+
+function setDrive(state, info) {
+  const m = {
+    connect: ['☁', 'var(--muted)', 'Sync with Google Drive'],
+    sync:    ['☁', 'var(--accent)', 'Syncing…'],
+    ok:      ['☁', 'var(--accent)', 'Synced ✓ — click to sync now'],
+    err:     ['⚠', '#e0533d', 'Drive: ' + (info || 'error, click to retry')],
+  }[state] || ['☁', 'var(--muted)', 'Sync with Google Drive'];
+  driveBtn.textContent = m[0]; driveBtn.style.color = m[1]; driveBtn.title = m[2];
+}
+
+const gisReady = () => window.google && google.accounts && google.accounts.oauth2;
+// Resolve with a valid access token; request silently unless interactive (first consent).
+function getToken(interactive) {
+  return new Promise((resolve, reject) => {
+    if (accessToken && Date.now() < tokenExp - 60000) return resolve(accessToken);
+    tokenClient.callback = r => {
+      if (r.error) return reject(r.error);
+      accessToken = r.access_token; tokenExp = Date.now() + (r.expires_in || 3600) * 1000;
+      resolve(accessToken);
+    };
+    tokenClient.requestAccessToken({ prompt: interactive ? 'consent' : '' });
+  });
+}
+
+async function api(token, url, opts) {
+  const r = await fetch(url, { ...opts, headers: { Authorization: 'Bearer ' + token, ...(opts && opts.headers) } });
+  if (!r.ok) throw new Error(r.status + ' ' + (await r.text()).slice(0, 120));  // ponytail: no 401 auto-retry; re-click re-auths
+  return r;
+}
+async function findFile(token) {
+  const q = encodeURIComponent(`name='${DRIVE_FILE}'`);
+  const r = await api(token, `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${q}&fields=files(id,appProperties)&pageSize=1`);
+  return (await r.json()).files[0] || null;
+}
+async function download(token, id) {
+  return (await api(token, `https://www.googleapis.com/drive/v3/files/${id}?alt=media`)).text();
+}
+// Create or update the single appData file; rev rides along as file metadata, not in the JSON.
+async function upsert(token, content, rev) {
+  const boundary = 'todo' + Date.now();
+  const meta = fileId ? { appProperties: { rev: String(rev) } }
+                      : { name: DRIVE_FILE, parents: ['appDataFolder'], appProperties: { rev: String(rev) } };
+  const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n` +
+    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${boundary}--`;
+  const url = fileId
+    ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart&fields=id`
+    : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id`;
+  const r = await api(token, url, { method: fileId ? 'PATCH' : 'POST',
+    headers: { 'Content-Type': 'multipart/related; boundary=' + boundary }, body });
+  fileId = (await r.json()).id;
+}
+
+function adopt(remote, rev) {
+  data = remote; localRev = rev;
+  localStorage.setItem(KEY, JSON.stringify(data));
+  localStorage.setItem(REV, rev);
+  if (!(active in data)) active = Object.keys(data)[0] || '';
+  render();
+}
+
+// Pull remote then converge: whichever side's rev is newer wins; create the file if absent.
+async function pull() {
+  setDrive('sync');
+  const token = await getToken(!driveOn());
+  const f = await findFile(token);
+  if (f) {
+    fileId = f.id;
+    const remoteRev = +(f.appProperties && f.appProperties.rev) || 0;
+    if (remoteRev > localRev) {
+      let remote; try { remote = JSON.parse(await download(token, f.id)); } catch { remote = null; }
+      if (isTree(remote)) adopt(remote, remoteRev);
+    } else if (localRev > remoteRev) {
+      await upsert(token, JSON.stringify(data), localRev);
+    }
+  } else {
+    await upsert(token, JSON.stringify(data), localRev);
+  }
+  localStorage.setItem('todo.drive', '1');
+  setDrive('ok');
+}
+
+async function push() {
+  if (!driveOn()) return;
+  setDrive('sync');
+  const token = await getToken(false);
+  await upsert(token, JSON.stringify(data), localRev);
+  setDrive('ok');
+}
+function schedulePush() {
+  if (!driveOn()) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => push().catch(e => setDrive('err', e.message)), 1500);
+}
+
+driveBtn.onclick = () => {
+  if (!DRIVE_CLIENT_ID) {
+    alert('Google Drive sync needs a one-time setup: create an OAuth client ID in Google Cloud, ' +
+          'paste it into index.html (DRIVE_CLIENT_ID), and bump the sw.js cache. See the README.');
+    return;
+  }
+  pull().catch(e => setDrive('err', e.message));
+};
+
+// Load Google's sign-in library only when configured, then wire up and (if already
+// connected) silently re-sync on startup.
+function waitGis(n) {
+  if (gisReady()) {
+    tokenClient = google.accounts.oauth2.initTokenClient({ client_id: DRIVE_CLIENT_ID, scope: DRIVE_SCOPE, callback: () => {} });
+    onChange = schedulePush;
+    if (driveOn()) pull().catch(() => setDrive('connect')); else setDrive('connect');
+  } else if (n < 25) setTimeout(() => waitGis(n + 1), 200);
+  else setDrive('err', 'could not load Google sign-in');
+}
+if (DRIVE_CLIENT_ID) {
+  const g = document.createElement('script');
+  g.src = 'https://accounts.google.com/gsi/client'; g.async = true;
+  document.head.appendChild(g);
+  waitGis(0);
+} else setDrive('connect');
 </script>
