@@ -19,8 +19,10 @@
     padding: 0 max(1.5rem, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(1.5rem, env(safe-area-inset-left));
     background: var(--bg); color: var(--fg); }
   h1 { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; font-size: 1.35rem; margin: .25rem 0 .5rem; }
-  #install, #update { font-size: .8rem; padding: .2rem .6rem; border: 1px solid var(--accent); border-radius: 999px;
-    color: var(--accent); }
+  #install { font-size: .8rem; padding: .2rem .6rem; border: 1px solid var(--accent); border-radius: 999px; color: var(--accent); }
+  #update { position: fixed; left: 50%; bottom: max(1rem, env(safe-area-inset-bottom)); transform: translateX(-50%);
+    z-index: 20; opacity: 1; font-size: .9rem; padding: .55rem 1.1rem; border: 0; border-radius: 999px;
+    background: var(--accent); color: #fff; box-shadow: 0 3px 12px rgba(0,0,0,.35); }
   h1 .name { letter-spacing: .05em; flex: 0 0 auto; margin-right: auto; }
   #theme { cursor: pointer; background: none; border: 0; color: inherit; font-size: 1.3rem; padding: 0 0 0 .5rem; }
   h2 { display: flex; align-items: center; gap: .3rem; font-size: 1.05rem; margin: 0 0 .2rem; }
@@ -29,7 +31,7 @@
   li.empty { color: var(--muted); font-style: italic; }
   .name, .text { flex: 1; }
   li.done .text { text-decoration: line-through; color: var(--muted); }
-  .grip { cursor: grab; opacity: .35; }
+  .grip { cursor: grab; opacity: .35; touch-action: none; }
   .drag { opacity: .4; }
   button { cursor: pointer; background: none; border: 0; font: inherit; padding: .15rem .25rem; color: inherit; opacity: .7; }
   button:hover { opacity: 1; }
@@ -53,7 +55,7 @@
   .newedit { flex: 1; min-width: 5rem; }
   h2 .newedit, #boardhead .newedit { font-weight: 600; }
   #pills { display: flex; flex-wrap: wrap; gap: .4rem; margin: 1rem 0; }
-  .tab { padding: .25rem .7rem; border: 1px solid var(--border); border-radius: 999px; background: none; color: inherit; cursor: pointer; opacity: 1; }
+  .tab { padding: .25rem .7rem; border: 1px solid var(--border); border-radius: 999px; background: none; color: inherit; cursor: pointer; opacity: 1; touch-action: none; }
   .tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
   #boardhead { display: flex; align-items: center; gap: .3rem; margin: .5rem 0; font-size: 1.3rem; }
   #boardhead .name { font-weight: 600; }
@@ -63,10 +65,10 @@
 
 <h1><span class="name">TODO</span>
   <button id="install" type="button" hidden>Install app</button>
-  <button id="update" type="button" hidden>New version &mdash; refresh</button>
   <button id="theme" type="button" title="toggle light/dark">&#9681;</button></h1>
 <input type="file" id="file" accept="application/json,.json" hidden>
 <div id="app"></div>
+<button id="update" type="button" hidden>New version &mdash; refresh</button>
 
 <script>
 "use strict";
@@ -252,7 +254,7 @@ function render() {
   </div>`;
 
   const pills = Object.keys(data).map(b =>
-    `<button class="tab${b === active ? ' active' : ''}" data-name="${esc(b)}" draggable="true">${esc(b)}</button>`
+    `<button class="tab${b === active ? ' active' : ''}" data-name="${esc(b)}">${esc(b)}</button>`
   ).join('');
   const pillsHtml = pills ? `<nav id="pills">${pills}</nav>` : '';
 
@@ -263,14 +265,14 @@ function render() {
       const el = esc(name);
       const items = tasks.length ? tasks.map((t, i) => {
         const n = i + 1, et = esc(t.text);
-        return `<li class="${t.done ? 'done' : ''}" draggable="true" data-n="${n}">
+        return `<li class="${t.done ? 'done' : ''}" data-n="${n}">
           <span class="grip" title="drag to reorder">&#10303;</span>
           <button class="box" data-board="${eb}" data-list="${el}" data-n="${n}" title="toggle">${t.done ? '&#9745;' : '&#9744;'}</button>
           <span class="text" data-kind="item" data-board="${eb}" data-list="${el}" data-n="${n}" data-text="${et}">${et}</span>
         </li>`;
       }).join('') : '<li class="empty">empty</li>';
       return `<section data-list="${el}">
-        <h2><span class="grip" draggable="true" title="drag to reorder">&#10303;</span>
+        <h2><span class="grip" title="drag to reorder">&#10303;</span>
           <span class="name" data-kind="list" data-board="${eb}" data-list="${el}">${el}</span></h2>
         <ul data-board="${eb}" data-list="${el}">${items}</ul>
       </section>`;
@@ -355,17 +357,41 @@ function select(el) {
   ['t-up', 't-down', 't-edit'].forEach(id => document.getElementById(id).disabled = !sel);
 }
 
-function sortable(container, sel, onDrop) {
-  let dragged = null;
-  container.addEventListener('dragstart', e => { dragged = e.target.closest(sel); if (dragged) dragged.classList.add('drag'); });
-  container.addEventListener('dragover', e => {
-    if (!dragged || dragged.parentElement !== container) return;
+// Pointer-based reorder: works for mouse, touch and pen (HTML5 DnD ignores touch).
+// Drag starts from `handleSel` (a grip, or the item itself for pills); a small
+// move threshold lets plain taps/clicks through. Handles need touch-action:none.
+function sortable(container, sel, onDrop, handleSel, horiz) {
+  handleSel = handleSel || sel;
+  const pos = e => horiz ? e.clientX : e.clientY;
+  let dragged = null, start = 0, moved = false;
+  container.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (!e.target.closest(handleSel)) return;
+    const item = e.target.closest(sel);
+    if (!item || item.parentElement !== container) return;
+    dragged = item; start = pos(e); moved = false;
+  });
+  container.addEventListener('pointermove', e => {
+    if (!dragged) return;
+    if (!moved) {
+      if (Math.abs(pos(e) - start) < 6) return;
+      moved = true; dragged.classList.add('drag');
+      try { container.setPointerCapture(e.pointerId); } catch {}
+    }
     e.preventDefault();
-    const after = [...container.querySelectorAll(sel + ':not(.drag)')]
-      .find(el => e.clientY < el.getBoundingClientRect().top + el.offsetHeight / 2);
+    const after = [...container.querySelectorAll(sel + ':not(.drag)')].find(el => {
+      const r = el.getBoundingClientRect();
+      return horiz ? pos(e) < r.left + r.width / 2 : pos(e) < r.top + r.height / 2;
+    });
     container.insertBefore(dragged, after || null);
   });
-  container.addEventListener('dragend', () => { if (!dragged) return; dragged.classList.remove('drag'); onDrop(); dragged = null; });
+  const end = () => {
+    if (!dragged) return;
+    const did = moved; dragged.classList.remove('drag'); dragged = null; moved = false;
+    if (did) onDrop();
+  };
+  container.addEventListener('pointerup', end);
+  container.addEventListener('pointercancel', end);
 }
 
 function bindAll() {
@@ -394,16 +420,16 @@ function bindAll() {
   if (pills) sortable(pills, '.tab', () => {
     const names = [...pills.querySelectorAll('.tab')].map(t => t.dataset.name);
     mutate(() => { data = orderKeys(data, names); });
-  });
+  }, null, true);
   const lists = document.getElementById('lists');
   if (lists) sortable(lists, 'section[data-list]', () => {
     const bd = lists.dataset.board, names = [...lists.querySelectorAll('section[data-list]')].map(s => s.dataset.list);
     mutate(() => { data[bd] = orderKeys(data[bd], names); });
-  });
+  }, '.grip');
   document.querySelectorAll('ul[data-list]').forEach(ul => sortable(ul, 'li[data-n]', () => {
     const order = [...ul.querySelectorAll('li[data-n]')].map(li => li.dataset.n);
     mutate(() => reorderTasks(ul.dataset.board, ul.dataset.list, order));
-  }));
+  }, '.grip'));
 }
 
 // ── One-time wiring: theme toggle and background-click deselect. ──

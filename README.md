@@ -30,11 +30,11 @@ Everything runs from the **toolbar**. Click a board name, list name, or task to 
 More:
 
 - **Toggle done** — click a task's checkbox.
-- **Reorder** — drag the ⠿ grip on a task, list, or board pill.
+- **Reorder** — drag the ⠿ grip on a task or list (or drag a board pill) — works with mouse or touch.
 - **Switch board** — click a board pill.
 - **Inline add/edit shortcut** — committing an *empty* field deletes the item (a quick way to remove the thing you're editing).
 - **Light / dark** — the ◑ button by the title; your choice is remembered.
-- **Install it** — in Chrome/Edge an **Install app** button appears by the title; once installed it opens in its own window and works offline.
+- **Install it** — in Chrome/Edge an **Install app** button appears by the title; once installed it opens in its own window and works offline. After a new deploy a **New version — refresh** prompt appears at the bottom of the page.
 
 ![TODO — dark](docs/screenshot-dark.png)
 
