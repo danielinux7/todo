@@ -2,13 +2,13 @@
 
 A tiny **boards › lists › tasks** todo app in a single file: pure HTML/CSS/JS, state in `localStorage`. No server, no build, no dependencies.
 
-**Live:** https://danielinux7.github.io/todo/
+**Live:** https://todo.surf
 
 ![TODO — light](docs/screenshot-light.png)
 
 ## Try it
 
-Open [`index.html`](index.html) in a browser, or visit the [live page](https://danielinux7.github.io/todo/). Everything is saved in your browser's `localStorage` — it never leaves your machine (and so does not sync across devices).
+Open [`index.html`](index.html) in a browser, or visit the [live page](https://todo.surf). Everything is saved in your browser's `localStorage` — it never leaves your machine (and so does not sync across devices).
 
 ## Quick guide
 
@@ -34,6 +34,7 @@ More:
 - **Switch board** — click a board pill.
 - **Inline add/edit shortcut** — committing an *empty* field deletes the item (a quick way to remove the thing you're editing).
 - **Light / dark** — the ◑ button by the title; your choice is remembered.
+- **Install it** — in Chrome/Edge an **Install app** button appears by the title; once installed it opens in its own window and works offline.
 
 ![TODO — dark](docs/screenshot-dark.png)
 
