@@ -275,7 +275,7 @@ function render() {
         </li>`;
       }).join('') : '<li class="empty">empty</li>';
       return `<section data-list="${el}">
-        <h2><span class="grip" title="drag to reorder">&#10303;</span>
+        <h2><span class="grip listgrip" title="drag to reorder">&#10303;</span>
           <span class="name" data-kind="list" data-board="${eb}" data-list="${el}">${el}</span></h2>
         <ul data-board="${eb}" data-list="${el}">${items}</ul>
       </section>`;
@@ -431,7 +431,7 @@ function bindAll() {
   if (lists) sortable(lists, 'section[data-list]', () => {
     const bd = lists.dataset.board, names = [...lists.querySelectorAll('section[data-list]')].map(s => s.dataset.list);
     mutate(() => { data[bd] = orderKeys(data[bd], names); });
-  }, '.grip');
+  }, '.listgrip');
   document.querySelectorAll('ul[data-list]').forEach(ul => sortable(ul, 'li[data-n]', () => {
     const order = [...ul.querySelectorAll('li[data-n]')].map(li => li.dataset.n);
     mutate(() => reorderTasks(ul.dataset.board, ul.dataset.list, order));

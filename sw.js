@@ -1,6 +1,6 @@
 // Bump CACHE on every deploy that changes a shell file, or clients serve stale copies.
 // ponytail: manual version string — no build step. Add a content-hash bumper if deploys get frequent.
-const CACHE = 'todo-v6';
+const CACHE = 'todo-v7';
 const SHELL = ['.', 'index.html', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', e =>
