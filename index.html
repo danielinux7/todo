@@ -33,6 +33,9 @@
   li.done .text { text-decoration: line-through; color: var(--muted); }
   .grip { cursor: grab; opacity: .35; touch-action: none; }
   .drag { opacity: .4; }
+  /* Don't let a drag start a text selection (the highlight); re-enable while editing. */
+  #pills .tab, #lists section, ul[data-list] li { -webkit-user-select: none; user-select: none; }
+  .editing, [contenteditable="true"] { -webkit-user-select: text; user-select: text; }
   button { cursor: pointer; background: none; border: 0; font: inherit; padding: .15rem .25rem; color: inherit; opacity: .7; }
   button:hover { opacity: 1; }
   #toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: .15rem; margin: 1rem 0; padding: .3rem .4rem;
@@ -370,6 +373,8 @@ function sortable(container, sel, onDrop, handleSel, horiz) {
     const item = e.target.closest(sel);
     if (!item || item.parentElement !== container) return;
     dragged = item; start = pos(e); moved = false;
+    // Grip-handle drags: stop the native selection/focus. Pills keep default so taps still switch board.
+    if (handleSel !== sel) e.preventDefault();
   });
   container.addEventListener('pointermove', e => {
     if (!dragged) return;
