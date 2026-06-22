@@ -41,9 +41,12 @@
   #toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: .15rem; margin: 1rem 0; padding: .3rem .4rem;
     border: 1px solid var(--border); border-radius: .4rem; width: max-content; max-width: 100%; }
   @media (max-width: 600px) {
-    #toolbar { width: auto; gap: .1rem; }
+    #toolbar { width: auto; gap: .25rem; padding: .25rem; margin: .6rem 0; }
     #toolbar .bar { display: none; }
-    #toolbar button { padding: .2rem .4rem; }
+    #toolbar button { padding: 0; width: 1.9rem; height: 1.9rem; font-size: .95rem;
+      border: 1px solid var(--border); border-radius: .35rem;
+      display: flex; align-items: center; justify-content: center; }
+    #toolbar .io svg { width: 1.05em; height: 1.05em; }
   }
   #toolbar button { font-size: 1.15rem; opacity: 1; padding: .25rem .5rem; border-radius: .3rem; }
   #toolbar button:not(:disabled):hover { background: var(--field); }
