@@ -9,7 +9,7 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232563eb'/><path d='M8 16.5l5 5L24 10' fill='none' stroke='%23fff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <title>TODO</title>
 <style>
-  html { color-scheme: light dark; }
+  html { color-scheme: light dark; -webkit-tap-highlight-color: transparent; }
   :root, :root[data-theme="light"] { --bg:#fff; --fg:#222; --muted:#999; --border:#ddd; --field:#fff; --accent:#2563eb; }
   @media (prefers-color-scheme: dark) {
     :root { --bg:#181818; --fg:#e6e6e6; --muted:#888; --border:#3a3a3a; --field:#242424; --accent:#3b82f6; }
@@ -18,7 +18,9 @@
   body { font: 16px/1.5 system-ui, sans-serif; max-width: 72rem; margin: 1rem auto;
     padding: 0 max(1.5rem, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(1.5rem, env(safe-area-inset-left));
     background: var(--bg); color: var(--fg); }
+  #sticky { position: sticky; top: 0; z-index: 10; background: var(--bg); }
   h1 { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; font-size: 1.35rem; margin: .25rem 0 .5rem; }
+  h1 .do { color: var(--accent); }
   #install { font-size: .8rem; padding: .2rem .6rem; border: 1px solid var(--accent); border-radius: 999px; color: var(--accent); }
   #update { position: fixed; left: 50%; bottom: max(1rem, env(safe-area-inset-bottom)); transform: translateX(-50%);
     z-index: 20; opacity: 1; font-size: .9rem; padding: .55rem 1.1rem; border: 0; border-radius: 999px;
@@ -30,12 +32,13 @@
   #toast.show { opacity: .95; }
   h1 .name { letter-spacing: .05em; flex: 0 0 auto; margin-right: auto; }
   #drive { cursor: pointer; background: none; border: 0; opacity: 1; padding: 0 .2rem; display: inline-flex; align-items: center; }
-  #drive svg { width: 1.15em; height: 1.15em; display: block; }
+  #drive svg { width: 1.45rem; height: 1.45rem; display: block; }
   /* Greyed = not synced; full colour = syncing/synced; pulse while in flight. */
   #drive[data-state="connect"] svg, #drive[data-state="err"] svg { filter: grayscale(1); opacity: .5; }
   #drive[data-state="sync"] svg { animation: drivepulse 1s ease-in-out infinite; }
   @keyframes drivepulse { 50% { opacity: .35; } }
-  #theme { cursor: pointer; background: none; border: 0; color: inherit; font-size: 1.3rem; padding: 0 0 0 .5rem; }
+  #theme { cursor: pointer; background: none; border: 0; color: inherit; padding: 0 0 0 .5rem; display: inline-flex; align-items: center; }
+  #theme svg { width: 1.45rem; height: 1.45rem; display: block; }
   h2 { display: flex; align-items: center; gap: .3rem; font-size: 1.05rem; margin: 0 0 .2rem; }
   ul { list-style: none; padding: 0; margin: 0; }
   li { display: flex; align-items: center; gap: .3rem; padding: .15rem 0; }
@@ -52,8 +55,11 @@
   #toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: .15rem; margin: 1rem 0; padding: .3rem .4rem;
     border: 1px solid var(--border); border-radius: .4rem; width: max-content; max-width: 100%; }
   @media (max-width: 600px) {
-    #toolbar { width: auto; gap: .25rem; padding: .25rem; margin: .6rem 0; }
+    #toolbar { width: auto; gap: 0; padding: 0; margin: .6rem 0; border: 0; }
     #toolbar .bar { display: none; }
+    .grip { display: none; }
+    /* Touch reorder is press-and-hold; suppress the iOS selection callout on a hold. */
+    #pills .tab, #lists section, ul[data-list] li { -webkit-touch-callout: none; }
     #toolbar button { padding: 0; width: 1.9rem; height: 1.9rem; font-size: .95rem;
       border: 1px solid var(--border); border-radius: .35rem;
       display: flex; align-items: center; justify-content: center; }
@@ -66,9 +72,14 @@
   #toolbar .io svg { width: 1.15em; height: 1.15em; display: block; }
   #toolbar .bar { width: 1px; align-self: stretch; background: var(--border); margin: .15rem .3rem; }
   [data-kind] { cursor: pointer; }
-  .selected { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: .2rem; }
-  .editing { outline: 2px solid var(--accent); background: var(--field); cursor: text;
-    border-radius: .2rem; padding: 0 .25rem; min-width: 5rem; }
+  .selected { text-decoration: underline; text-decoration-color: var(--fg);
+    text-decoration-thickness: 1px; text-underline-offset: 4px; }
+  /* keep the strike-through visible when a done task is selected/edited */
+  li.done .selected, li.done .editing { text-decoration: underline line-through;
+    text-decoration-color: var(--fg); text-decoration-thickness: 1px; text-underline-offset: 4px; }
+  .editing { outline: none; background: transparent; cursor: text; min-width: 5rem;
+    text-decoration: underline; text-decoration-color: var(--fg);
+    text-decoration-thickness: 1px; text-underline-offset: 4px; }
   .newedit { flex: 1; min-width: 5rem; }
   h2 .newedit, #boardhead .newedit { font-weight: 600; }
   #pills { display: flex; flex-wrap: wrap; gap: .4rem; margin: 1rem 0; }
@@ -80,10 +91,13 @@
 </style>
 <script>var s=localStorage.getItem('theme');if(s)document.documentElement.setAttribute('data-theme',s);</script>
 
-<h1><span class="name">TODO</span>
+<div id="sticky">
+<h1><span class="name">TO<span class="do">DO</span></span>
   <button id="install" type="button" hidden>Install app</button>
   <button id="drive" type="button" title="Sync with Google Drive" data-state="connect"><svg viewBox="0 0 87.3 78" aria-hidden="true"><path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/><path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/><path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/><path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/><path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/><path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/></svg></button>
-  <button id="theme" type="button" title="toggle light/dark">&#9681;</button></h1>
+  <button id="theme" type="button" title="toggle light/dark"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3 A9 9 0 0 1 12 21 Z" fill="currentColor"/></svg></button></h1>
+<div id="chrome"></div>
+</div>
 <input type="file" id="file" accept="application/json,.json" hidden>
 <div id="app"></div>
 <button id="update" type="button" hidden>New version &mdash; refresh</button>
@@ -134,7 +148,7 @@ function touched() { localRev = Date.now(); localStorage.setItem(REV, localRev);
 let data = load();
 if (!Object.keys(data).length) { data = clone(SEED); save(); }
 let active = Object.keys(data)[0] || '';
-let sel = null;
+let sel = null, reselect = null;
 const UNDO = [], REDO = [];
 
 // ── Mutations record a whole-document snapshot for undo (always correct, tiny). ──
@@ -222,6 +236,17 @@ function subtree(t) {
   return data[t.board][t.list][t.n - 1];
 }
 
+// ── Markdown for clipboard: board -> # / list -> ## / task -> - [ ] / - [x]. ──
+const mdTask = t => `- [${t.done ? 'x' : ' '}] ${t.text}`;
+const mdList = (name, tasks) => `## ${name}\n` + (tasks.length ? tasks.map(mdTask).join('\n') : '_empty_');
+const mdBoard = (name, lists) => `# ${name}\n\n` +
+  (Object.keys(lists).length ? Object.entries(lists).map(([l, ts]) => mdList(l, ts)).join('\n\n') : '_empty_');
+function markdown(t) {
+  if (!t || t.kind === 'board') { const b = (t && t.board) || active; return mdBoard(b, data[b] || {}); }
+  if (t.kind === 'list') return mdList(t.list, data[t.board][t.list]);
+  return mdTask(data[t.board][t.list][t.n - 1]);
+}
+
 // ── Export / Import the whole tree as JSON (same shape as the CLI's todos.json). ──
 function exportJson() {
   const a = document.createElement('a');
@@ -271,8 +296,8 @@ function render() {
     <span class="bar"></span>
     <button id="t-edit" type="button" title="Edit inline" disabled>&#9998;</button>
     <button id="t-dup" type="button" title="Duplicate (current board if none selected)">&#10697;</button>
-    <button id="t-clip" type="button" title="Copy to clipboard (current board if none selected)">&#128203;</button>
-    <button id="t-del" type="button" title="Delete (current board if none selected)">&#128465;</button>
+    <button id="t-clip" type="button" title="Copy as markdown (current board if none selected)">&#128203;</button>
+    <button id="t-del" type="button" title="Delete (select a board/list/task first)" disabled>&#128465;</button>
     <span class="bar"></span>
     <button id="t-import" class="io" type="button" title="Import JSON (merge into your boards)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11"/><path d="M7.5 9.5 12 14l4.5-4.5"/><path d="M4 20h16"/></svg></button>
     <button id="t-export" class="io" type="button" title="Export all boards as JSON"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V10"/><path d="M7.5 14.5 12 10l4.5 4.5"/><path d="M4 4h16"/></svg></button>
@@ -283,7 +308,7 @@ function render() {
   ).join('');
   const pillsHtml = pills ? `<nav id="pills">${pills}</nav>` : '';
 
-  let boardHtml;
+  let headHtml, listsHtml;
   if (active) {
     const eb = esc(active);
     const sections = Object.entries(data[active]).map(([name, tasks]) => {
@@ -302,14 +327,15 @@ function render() {
         <ul data-board="${eb}" data-list="${el}">${items}</ul>
       </section>`;
     }).join('') || '<p>No lists yet. Add one above.</p>';
-    boardHtml = `<div id="board"><div id="boardhead">
-      <span class="name" data-kind="board" data-board="${eb}">${eb}</span></div>
-      <div id="lists" data-board="${eb}">${sections}</div></div>`;
+    headHtml = `<div id="boardhead"><span class="name" data-kind="board" data-board="${eb}">${eb}</span></div>`;
+    listsHtml = `<div id="lists" data-board="${eb}">${sections}</div>`;
   } else {
-    boardHtml = '<p>Create a board to get started.</p>';
+    headHtml = '';
+    listsHtml = '<p>Create a board to get started.</p>';
   }
 
-  document.getElementById('app').innerHTML = toolbar + pillsHtml + boardHtml;
+  document.getElementById('chrome').innerHTML = toolbar + pillsHtml + headHtml;
+  document.getElementById('app').innerHTML = listsHtml;
   bindAll();
 }
 
@@ -379,7 +405,21 @@ function select(el) {
   if (sel) sel.classList.remove('selected');
   sel = sel === el ? null : el;
   if (sel) sel.classList.add('selected');
-  ['t-up', 't-down', 't-edit'].forEach(id => document.getElementById(id).disabled = !sel);
+  ['t-up', 't-down', 't-edit', 't-del'].forEach(id => document.getElementById(id).disabled = !sel);
+}
+
+// Move and keep the selection: stamp the post-move descriptor so bindAll re-selects it,
+// letting repeated up/down clicks keep acting on the same element.
+function moveSel(dir) {
+  if (!sel) return;
+  const d = dsOf(sel);
+  if (d.kind === 'item') {
+    const len = data[d.board][d.list].length;
+    let n = d.n + (dir === 'up' ? -1 : 1);
+    if (n < 1 || n > len) n = d.n;
+    reselect = { ...d, n };
+  } else reselect = d;  // board/list are keyed by name — order changes, name doesn't
+  mutate(() => move(d, dir));
 }
 
 // Pointer-based reorder: works for mouse, touch and pen (HTML5 DnD ignores touch).
@@ -388,32 +428,51 @@ function select(el) {
 function sortable(container, sel, onDrop, handleSel, horiz) {
   handleSel = handleSel || sel;
   const pos = e => horiz ? e.clientX : e.clientY;
-  let dragged = null, start = 0, moved = false;
-  container.addEventListener('pointerdown', e => {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if (e.target.isContentEditable) return;  // let text editing select normally
-    if (!e.target.closest(handleSel)) return;
-    const item = e.target.closest(sel);
-    if (!item || item.parentElement !== container) return;
-    dragged = item; start = pos(e); moved = false;
-    // Grip-handle drags: stop the native selection/focus. Pills keep default so taps still switch board.
-    if (handleSel !== sel) e.preventDefault();
-  });
-  container.addEventListener('pointermove', e => {
-    if (!dragged) return;
-    if (!moved) {
-      if (Math.abs(pos(e) - start) < 6) return;
-      moved = true; dragged.classList.add('drag');
-      try { container.setPointerCapture(e.pointerId); } catch {}
-    }
-    e.preventDefault();
+  let dragged = null, start = 0, moved = false, lpTimer = null;
+
+  const begin = (item, e) => { dragged = item; start = pos(e); };
+  const capture = e => { try { container.setPointerCapture(e.pointerId); } catch {} };
+  const cancelLp = () => { clearTimeout(lpTimer); lpTimer = null; };
+  const reorder = e => {
     const after = [...container.querySelectorAll(sel + ':not(.drag)')].find(el => {
       const r = el.getBoundingClientRect();
       return horiz ? pos(e) < r.left + r.width / 2 : pos(e) < r.top + r.height / 2;
     });
     container.insertBefore(dragged, after || null);
+  };
+
+  container.addEventListener('pointerdown', e => {
+    if (e.target.isContentEditable) return;  // let text editing select normally
+    const item = e.target.closest(sel);
+    if (!item || item.parentElement !== container) return;
+    if (e.pointerType === 'mouse') {
+      if (e.button !== 0 || !e.target.closest(handleSel)) return;  // mouse drags from the handle
+      begin(item, e); moved = false;
+      if (handleSel !== sel) e.preventDefault();  // grip drag: suppress native selection/focus
+    } else {
+      // Touch/pen: press-and-hold anywhere on the item arms the drag (grips are hidden on mobile).
+      start = pos(e);
+      lpTimer = setTimeout(() => {
+        lpTimer = null; begin(item, e); moved = true; dragged.classList.add('drag'); capture(e);
+        navigator.vibrate && navigator.vibrate(10);
+      }, 350);
+    }
   });
+  container.addEventListener('pointermove', e => {
+    if (lpTimer) { if (Math.abs(pos(e) - start) > 8) cancelLp(); return; }  // moved before the hold => scroll/tap
+    if (!dragged) return;
+    if (!moved) {  // mouse: small threshold before it counts as a drag (lets clicks/taps through)
+      if (Math.abs(pos(e) - start) < 6) return;
+      moved = true; dragged.classList.add('drag'); capture(e);
+    }
+    e.preventDefault();
+    reorder(e);
+  });
+  // Only block touch scrolling once a hold has armed the drag; a plain swipe still scrolls the page.
+  container.addEventListener('touchmove', e => { if (dragged && moved) e.preventDefault(); }, { passive: false });
+
   const end = () => {
+    cancelLp();
     if (!dragged) return;
     const did = moved; dragged.classList.remove('drag'); dragged = null; moved = false;
     if (did) onDrop();
@@ -428,12 +487,12 @@ function bindAll() {
   b('t-undo').onclick = undo;
   b('t-redo').onclick = redo;
   b('t-add').onclick = onAdd;
-  b('t-up').onclick = () => sel && mutate(() => move(dsOf(sel), 'up'));
-  b('t-down').onclick = () => sel && mutate(() => move(dsOf(sel), 'down'));
+  b('t-up').onclick = () => moveSel('up');
+  b('t-down').onclick = () => moveSel('down');
   b('t-edit').onclick = () => sel && inlineEdit(sel, false);
   b('t-dup').onclick = () => mutate(() => dup(target()));
-  b('t-del').onclick = () => mutate(() => del(target()));
-  b('t-clip').onclick = () => navigator.clipboard.writeText(JSON.stringify(subtree(sel ? dsOf(sel) : null), null, 2));
+  b('t-del').onclick = () => sel && mutate(() => del(dsOf(sel)));
+  b('t-clip').onclick = () => navigator.clipboard.writeText(markdown(sel ? dsOf(sel) : null));
   b('t-export').onclick = exportJson;
   b('t-import').onclick = () => document.getElementById('file').click();
 
@@ -458,6 +517,15 @@ function bindAll() {
     const order = [...ul.querySelectorAll('li[data-n]')].map(li => li.dataset.n);
     mutate(() => reorderTasks(ul.dataset.board, ul.dataset.list, order));
   }));
+
+  if (reselect) {
+    const want = reselect; reselect = null;
+    const it = [...document.querySelectorAll('[data-kind]')].find(el => {
+      const t = dsOf(el);
+      return t.kind === want.kind && t.board === want.board && t.list === want.list && t.n === want.n;
+    });
+    if (it) select(it);
+  }
 }
 
 // ── One-time wiring: theme toggle and background-click deselect. ──
@@ -661,7 +729,8 @@ function waitGis(n) {
   if (gisReady()) {
     tokenClient = google.accounts.oauth2.initTokenClient({ client_id: DRIVE_CLIENT_ID, scope: DRIVE_SCOPE, callback: () => {} });
     onChange = schedulePush;
-    if (driveOn()) pull().catch(() => setDrive('connect')); else setDrive('connect');
+    // Don't request a token on load — that can pop the Google sign-in. Sync only on click.
+    setDrive(driveOn() ? 'ok' : 'connect');
   } else if (n < 25) setTimeout(() => waitGis(n + 1), 200);
   else setDrive('err', 'could not load Google sign-in');
 }

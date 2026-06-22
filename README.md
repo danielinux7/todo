@@ -21,8 +21,8 @@ Everything runs from the **toolbar**. Click a board name, list name, or task to 
 | ↑ / ↓ | **Move** the selection up or down |
 | ✎ | **Edit** the selection inline (type, `Enter` to save, `Esc` to cancel) |
 | ⧉ | **Duplicate** the selection in place (current board if nothing is selected) |
-| 📋 | **Copy to clipboard** — the selected board/list/task as JSON (current board if nothing is selected) |
-| 🗑 | **Delete** the selection (current board if nothing is selected) |
+| 📋 | **Copy to clipboard** — the selected board/list/task as **markdown** (current board if nothing is selected) |
+| 🗑 | **Delete** the selection — disabled until you select a board, list, or task |
 | 📥 / 📤 | **Import / Export** — merge a JSON file into your boards, or download everything as `todo.json` |
 
 **Import / export.** Export downloads your whole tree as `todo.json`. Import reads a file of the same shape — `{ board: { list: [ {text, done} ] } }` — and *merges* it in: new boards and lists are added, and tasks are appended to existing lists unless a task with that text is already there (so re-importing the same file is safe). A `todos.json` from the command-line version drops straight in.
