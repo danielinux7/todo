@@ -23,6 +23,11 @@
   #update { position: fixed; left: 50%; bottom: max(1rem, env(safe-area-inset-bottom)); transform: translateX(-50%);
     z-index: 20; opacity: 1; font-size: .9rem; padding: .55rem 1.1rem; border: 0; border-radius: 999px;
     background: var(--accent); color: #fff; box-shadow: 0 3px 12px rgba(0,0,0,.35); }
+  #toast { position: fixed; left: 50%; bottom: max(1rem, env(safe-area-inset-bottom)); transform: translateX(-50%);
+    z-index: 30; font-size: .85rem; padding: .45rem .9rem; border-radius: 999px; white-space: nowrap;
+    background: var(--fg); color: var(--bg); opacity: 0; pointer-events: none; transition: opacity .2s;
+    box-shadow: 0 3px 12px rgba(0,0,0,.3); }
+  #toast.show { opacity: .95; }
   h1 .name { letter-spacing: .05em; flex: 0 0 auto; margin-right: auto; }
   #drive { cursor: pointer; background: none; border: 0; opacity: 1; padding: 0 .2rem; display: inline-flex; align-items: center; }
   #drive svg { width: 1.15em; height: 1.15em; display: block; }
@@ -537,6 +542,14 @@ function setDrive(state, info) {
   driveBtn.dataset.state = s; driveBtn.title = titles[s];
 }
 
+// Brief status message so a manual sync visibly says which way it went.
+function toast(msg) {
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); }
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2400);
+}
+
 const gisReady = () => window.google && google.accounts && google.accounts.oauth2;
 // Resolve with a valid access token; request silently unless interactive (first consent).
 function getToken(interactive) {
@@ -595,20 +608,23 @@ async function pull() {
   setDrive('sync');
   const token = await getToken(!driveOn());
   const f = await findFile(token);
+  let msg = 'Already in sync';
   if (f) {
     fileId = f.id;
     const remoteRev = +(f.appProperties && f.appProperties.rev) || 0;
     if (remoteRev > localRev) {
       let remote; try { remote = JSON.parse(await download(token, f.id)); } catch { remote = null; }
-      if (isTree(remote)) adopt(remote, remoteRev);
+      if (isTree(remote)) { adopt(remote, remoteRev); msg = '↓ Downloaded from Drive'; }
+      else msg = 'Remote file unreadable';
     } else if (localRev > remoteRev) {
-      await upsert(token, JSON.stringify(data), localRev);
+      await upsert(token, JSON.stringify(data), localRev); msg = '↑ Uploaded to Drive';
     }
   } else {
-    await upsert(token, JSON.stringify(data), localRev);
+    await upsert(token, JSON.stringify(data), localRev); msg = '↑ Uploaded to Drive (created)';
   }
   localStorage.setItem('todo.drive', '1');
   setDrive('ok');
+  toast(msg);
 }
 
 async function push() {
