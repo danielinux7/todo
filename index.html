@@ -369,6 +369,7 @@ function sortable(container, sel, onDrop, handleSel, horiz) {
   let dragged = null, start = 0, moved = false;
   container.addEventListener('pointerdown', e => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (e.target.isContentEditable) return;  // let text editing select normally
     if (!e.target.closest(handleSel)) return;
     const item = e.target.closest(sel);
     if (!item || item.parentElement !== container) return;
@@ -434,7 +435,7 @@ function bindAll() {
   document.querySelectorAll('ul[data-list]').forEach(ul => sortable(ul, 'li[data-n]', () => {
     const order = [...ul.querySelectorAll('li[data-n]')].map(li => li.dataset.n);
     mutate(() => reorderTasks(ul.dataset.board, ul.dataset.list, order));
-  }, '.grip'));
+  }));
 }
 
 // ── One-time wiring: theme toggle and background-click deselect. ──
