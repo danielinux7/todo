@@ -542,6 +542,12 @@ function setDrive(state, info) {
   driveBtn.dataset.state = s; driveBtn.title = titles[s];
 }
 
+// Quick content fingerprint — same file ⇒ same counts on every device.
+function stats() {
+  let lists = 0, tasks = 0;
+  for (const b of Object.values(data)) for (const l of Object.values(b)) { lists++; tasks += l.length; }
+  return `${Object.keys(data).length} boards · ${tasks} tasks`;
+}
 // Brief status message so a manual sync visibly says which way it went.
 function toast(msg) {
   let t = document.getElementById('toast');
@@ -624,7 +630,7 @@ async function pull() {
   }
   localStorage.setItem('todo.drive', '1');
   setDrive('ok');
-  toast(msg);
+  toast(msg + ' · ' + stats());
 }
 
 async function push() {
