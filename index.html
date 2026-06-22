@@ -24,7 +24,12 @@
     z-index: 20; opacity: 1; font-size: .9rem; padding: .55rem 1.1rem; border: 0; border-radius: 999px;
     background: var(--accent); color: #fff; box-shadow: 0 3px 12px rgba(0,0,0,.35); }
   h1 .name { letter-spacing: .05em; flex: 0 0 auto; margin-right: auto; }
-  #drive { cursor: pointer; background: none; border: 0; opacity: 1; font-size: 1.15rem; line-height: 1; padding: 0 .15rem; }
+  #drive { cursor: pointer; background: none; border: 0; opacity: 1; padding: 0 .2rem; display: inline-flex; align-items: center; }
+  #drive svg { width: 1.15em; height: 1.15em; display: block; }
+  /* Greyed = not synced; full colour = syncing/synced; pulse while in flight. */
+  #drive[data-state="connect"] svg, #drive[data-state="err"] svg { filter: grayscale(1); opacity: .5; }
+  #drive[data-state="sync"] svg { animation: drivepulse 1s ease-in-out infinite; }
+  @keyframes drivepulse { 50% { opacity: .35; } }
   #theme { cursor: pointer; background: none; border: 0; color: inherit; font-size: 1.3rem; padding: 0 0 0 .5rem; }
   h2 { display: flex; align-items: center; gap: .3rem; font-size: 1.05rem; margin: 0 0 .2rem; }
   ul { list-style: none; padding: 0; margin: 0; }
@@ -72,7 +77,7 @@
 
 <h1><span class="name">TODO</span>
   <button id="install" type="button" hidden>Install app</button>
-  <button id="drive" type="button" title="Sync with Google Drive">&#9729;</button>
+  <button id="drive" type="button" title="Sync with Google Drive" data-state="connect"><svg viewBox="0 0 87.3 78" aria-hidden="true"><path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/><path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/><path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/><path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/><path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/><path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/></svg></button>
   <button id="theme" type="button" title="toggle light/dark">&#9681;</button></h1>
 <input type="file" id="file" accept="application/json,.json" hidden>
 <div id="app"></div>
@@ -522,13 +527,14 @@ const driveBtn = document.getElementById('drive');
 const driveOn = () => localStorage.getItem('todo.drive') === '1';
 
 function setDrive(state, info) {
-  const m = {
-    connect: ['☁', 'var(--muted)', 'Sync with Google Drive'],
-    sync:    ['☁', 'var(--accent)', 'Syncing…'],
-    ok:      ['☁', 'var(--accent)', 'Synced ✓ — click to sync now'],
-    err:     ['⚠', '#e0533d', 'Drive: ' + (info || 'error, click to retry')],
-  }[state] || ['☁', 'var(--muted)', 'Sync with Google Drive'];
-  driveBtn.textContent = m[0]; driveBtn.style.color = m[1]; driveBtn.title = m[2];
+  const titles = {
+    connect: 'Sync with Google Drive',
+    sync:    'Syncing…',
+    ok:      'Synced ✓ — click to sync now',
+    err:     'Drive: ' + (info || 'error, click to retry'),
+  };
+  const s = state in titles ? state : 'connect';
+  driveBtn.dataset.state = s; driveBtn.title = titles[s];
 }
 
 const gisReady = () => window.google && google.accounts && google.accounts.oauth2;
