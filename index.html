@@ -649,15 +649,4 @@ if (DRIVE_CLIENT_ID) {
   document.head.appendChild(g);
   waitGis(0);
 } else setDrive('connect');
-
-// Re-pull when you return to the tab/app, so edits from another device show up without a reload.
-let lastPull = 0;
-function maybePull() {
-  if (!driveOn() || document.hidden || !tokenClient) return;
-  if (Date.now() - lastPull < 4000) return;       // ponytail: debounce focus/visibility storms
-  lastPull = Date.now();
-  pull().catch(() => {});
-}
-addEventListener('visibilitychange', maybePull);
-addEventListener('focus', maybePull);
 </script>
